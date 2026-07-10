@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport"
+		content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+	<title>uWolf</title>
+	<link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+	<canvas id="screen"></canvas>
+	<canvas id="minimap" width="180" height="180"></canvas>
+
+	<div id="hud" class="hidden">
+		<button id="btnMap" class="hud-btn" aria-label="Toggle map">MAP</button>
+		<button id="btnWpn" class="hud-btn" aria-label="Switch weapon">WPN</button>
+		<button id="btnMenu" class="hud-btn" aria-label="Back to menu">MENU</button>
+	</div>
+
+	<div id="menu">
+		<div class="panel">
+			<h1>uWolf</h1>
+			<p class="sub">A Wolfenstein 3D raycasting engine that reads <em>your own</em> game data. No content ships with
+				it.</p>
+
+			<div class="step">
+				<span class="n">1</span>
+				<div>
+					<strong>Point it at your data</strong>
+					<p>Put three files from your registered Wolfenstein 3D (v1.4) copy into
+						this page's folder (your web server's Wolfenstein root):
+						<code>VSWAP.WL6</code>, <code>MAPHEAD.WL6</code>, <code>GAMEMAPS.WL6</code>.
+					</p>
+					<p>Optional, for the original status bar &amp; BJ face: also add <code>VGAGRAPH.WL6</code>,
+						<code>VGAHEAD.WL6</code>, <code>VGADICT.WL6</code>.
+					</p>
+				</div>
+			</div>
+
+			<div class="choices">
+				<button id="btnFetch">Retry</button>
+			</div>
+			<p class="hint" id="fetchHint">The game data loads automatically from this folder. If it isn't found, add the
+				files above and press Retry.</p>
+
+			<div id="levelBox" class="hidden">
+				<label for="levelSel"><strong>2 · Pick a level</strong></label>
+				<select id="levelSel"></select>
+
+				<div class="opts">
+					<label for="diffSel">Difficulty</label>
+					<select id="diffSel">
+						<option value="0">Can I play, Daddy?</option>
+						<option value="1" selected>Don't hurt me</option>
+						<option value="2">Bring 'em on</option>
+						<option value="3">I am Death incarnate</option>
+					</select>
+					<label class="chk"><input type="checkbox" id="godChk"> God mode</label>
+					<label class="chk"><input type="checkbox" id="ammoChk"> Infinite ammo</label>
+					<label class="chk"><input type="checkbox" id="allWpnChk"> All weapons</label>
+				</div>
+
+				<button id="btnStart">Enter</button>
+			</div>
+
+			<p id="status" class="status"></p>
+
+			<details class="controls">
+				<summary>Controls</summary>
+				<p><strong>Move:</strong> W/A/S/D, turn ←/→. <strong>Fire:</strong> Ctrl. <strong>Weapons:</strong> 1–4.
+					<strong>Use</strong> (doors / secret walls / elevator): Space or E. <strong>Map:</strong> M.
+				</p>
+				<p><strong>Touch:</strong> left half = move stick, right half = drag to turn, WPN cycles weapons.</p>
+			</details>
+		</div>
+	</div>
+
+	<script src="js/palette.js"></script>
+	<script src="js/wl_formats.js"></script>
+	<script src="js/vgagraph.js"></script>
+	<script src="js/raycaster.js"></script>
+	<script src="js/enemies.js"></script>
+	<script src="js/sound.js"></script>
+	<script src="js/ai.js"></script>
+	<script src="js/game.js"></script>
+	<script src="js/main.js"></script>
+</body>
+
+</html>

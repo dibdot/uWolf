@@ -172,7 +172,7 @@ each:
 mkdir -p /mnt/data/uWolf      # your USB/NVMe mount
 # copy the uWolf/ contents + your WL6 data files here, next to index.html:
 #   /mnt/data/uWolf/VSWAP.WL6  /mnt/data/uWolf/MAPHEAD.WL6  /mnt/data/uWolf/GAMEMAPS.WL6
-#   /mnt/data/uWolf/VGAGRAPH.WL6  /mnt/data/uWolf/`VGAHEAD.WL6  /mnt/data/uWolf/VGADICT.WL6
+#   /mnt/data/uWolf/VGAGRAPH.WL6  /mnt/data/uWolf/VGAHEAD.WL6  /mnt/data/uWolf/VGADICT.WL6
 ```
 
 Add an instance to `/etc/config/uhttpd`:
@@ -195,13 +195,6 @@ Then browse to `http://<router-ip>:8088/`.
 `fetch().arrayBuffer()`, so no special MIME configuration is needed. The data
 loads automatically from the page's own folder on open; if it isn't found, add
 the WL6 files there and press **Retry**.
-
-## Controls
-
-- **Desktop:** `W/A/S/D` move, `←/→` turn, `Space` open door, `M` toggle map.
-- **Touch:** left half of the screen is a movement stick, right half is
-  drag-to-turn; a quick tap on the left opens the door you face; the `OPEN`
-  button does the same.
 
 ## Sound
 

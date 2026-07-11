@@ -378,3 +378,23 @@ code {
 	border-color: #c05a4a;
 	color: #ffb4a6;
 }
+
+/* Resume a run that was paused with Escape / MENU */
+.resume-btn {
+	display: block;
+	width: 100%;
+	margin: 0 0 14px;
+	padding: 13px 14px;
+	font: inherit;
+	font-size: 13px;
+	letter-spacing: 0.08em;
+	cursor: pointer;
+	color: var(--accent-lit);
+	background: #2a2312;
+	border: 1px solid var(--accent);
+	border-radius: 3px;
+}
+
+.resume-btn:hover {
+	background: #362d16;
+}

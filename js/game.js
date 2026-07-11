@@ -109,11 +109,35 @@
 
 	// Leave the running game and hand back to the menu (Escape key / MENU button).
 	// main.js supplies onMenu, which restores the menu DOM; the game state stays
-	// intact, so the run can still be saved into a slot from there.
+	// intact, so the run can be resumed or stored into a slot from there.
 	Game.prototype.exitToMenu = function () {
 		if (!this.running) return;
 		this.running = false;
 		if (this.onMenu) this.onMenu();
+	};
+
+	// Is there a run sitting in memory that could be resumed?
+	Game.prototype.canResume = function () {
+		return !!(this.level && this.gs && !this.gs.gameOver);
+	};
+
+	// Pick the paused run back up exactly where it was.
+	Game.prototype.resume = function () {
+		if (!this.canResume() || this.running) return false;
+		this.running = true;
+		this._last = performance.now();      // don't bill the menu time to the next frame
+		this.setShowMap(this.showMap);
+		requestAnimationFrame(this._loop.bind(this));
+		return true;
+	};
+
+	// Drop the current run entirely (after a game over), so nothing is left to resume.
+	Game.prototype.clearRun = function () {
+		this.running = false;
+		this.level = null;
+		this.ai = null;
+		if (this.rc) this.rc.sprites = [];
+		this.resetPlayerState();
 	};
 	Game.prototype.setInfiniteAmmo = function (on) {
 		this.gs.infiniteAmmo = !!on;
@@ -841,18 +865,44 @@
 			var pct = function (a, b) { return b > 0 ? Math.round(a * 100 / b) : 100; };
 			ctx.save();
 			ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, W, H);   // solid intermission screen
-			ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+			ctx.textBaseline = 'middle';
 			var cyC = H / 2;
+
+			ctx.textAlign = 'center';
 			ctx.fillStyle = '#ffd24a'; ctx.font = 'bold ' + Math.max(16, H * 0.075) + 'px monospace';
 			ctx.fillText('FLOOR ' + st.floor + ' COMPLETE', W / 2, cyC - H * 0.24);
-			ctx.fillStyle = '#fff'; ctx.font = 'bold ' + Math.max(11, H * 0.045) + 'px monospace';
+
+			// The stats are laid out in fixed character columns and drawn LEFT-aligned
+			// from a common origin. Centring each row as one string (which is what this
+			// used to do) makes every column drift, because the rows differ in length.
+			ctx.font = 'bold ' + Math.max(11, H * 0.045) + 'px monospace';
+			var charW = ctx.measureText('0').width;          // monospace: every glyph is this wide
+			var LBL = 9, GOT = 3, SEP = 3, TOT = 3, PCT = 6; // column widths, in characters
+			var lineChars = LBL + GOT + SEP + TOT + PCT;
+			var x0 = W / 2 - (lineChars * charW) / 2;
+			var pctX = x0 + (LBL + GOT + SEP + TOT) * charW; // where the percentage column starts
+
 			var rows = [
-				'KILL     ' + st.kills + ' / ' + st.enemies + '    ' + pct(st.kills, st.enemies) + '%',
-				'SECRET   ' + st.secretsFound + ' / ' + st.secretsTotal + '    ' + pct(st.secretsFound, st.secretsTotal) + '%',
-				'TREASURE ' + st.treasureFound + ' / ' + st.treasureTotal + '    ' + pct(st.treasureFound, st.treasureTotal) + '%',
-				'SCORE    ' + this.gs.score
+				['KILL', st.kills, st.enemies],
+				['SECRET', st.secretsFound, st.secretsTotal],
+				['TREASURE', st.treasureFound, st.treasureTotal]
 			];
-			for (var ri = 0; ri < rows.length; ri++) ctx.fillText(rows[ri], W / 2, cyC - H * 0.09 + ri * H * 0.08);
+			ctx.textAlign = 'left';
+			for (var ri = 0; ri < rows.length; ri++) {
+				var label = rows[ri][0], got = rows[ri][1], total = rows[ri][2];
+				var p = pct(got, total);
+				var y = cyC - H * 0.09 + ri * H * 0.08;
+				ctx.fillStyle = '#fff';
+				ctx.fillText(padR(label, LBL) + padL(got, GOT) + ' / ' + padL(total, TOT), x0, y);
+				// a clean 100% is worth calling out, as the original does with its bonus
+				ctx.fillStyle = (p === 100) ? '#ffd24a' : '#fff';
+				ctx.fillText(padL(p + '%', PCT), pctX, y);
+			}
+			ctx.fillStyle = '#fff';
+			ctx.fillText(padR('SCORE', LBL) + padL(this.gs.score, lineChars - LBL),
+				x0, cyC - H * 0.09 + rows.length * H * 0.08);
+
+			ctx.textAlign = 'center';
 			ctx.fillStyle = (((Date.now() / 500) | 0) % 2) ? '#ffd24a' : 'rgba(255,210,74,0.35)';
 			ctx.font = 'bold ' + Math.max(10, H * 0.038) + 'px monospace';
 			ctx.fillText(this._levelDoneReady ? 'PRESS A KEY TO CONTINUE' : '\u2026', W / 2, cyC + H * 0.33);
@@ -966,6 +1016,10 @@
 	};
 
 	function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+	// Fixed-width padding for the monospace stats columns.
+	function padL(s, n) { s = String(s); while (s.length < n) s = ' ' + s; return s; }
+	function padR(s, n) { s = String(s); while (s.length < n) s = s + ' '; return s; }
 
 	// ---- Save / load -------------------------------------------------------
 	//

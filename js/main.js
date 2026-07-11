@@ -102,8 +102,13 @@
 	$('btnSave').addEventListener('click', function () { game.quickSave(); });
 	$('btnMenu').addEventListener('click', function () { game.exitToMenu(); });
 
+	// Escape / MENU only pause the run — this picks it back up where it was.
+	$('btnResume').addEventListener('click', function () {
+		if (game.resume()) enterGame();
+	});
+
 	// Back to the menu — from the MENU button or the Escape key (game.onMenu).
-	// The run stays in memory, so it can still be stored into a slot from here.
+	// The run stays in memory, so it can be resumed or stored into a slot here.
 	game.onMenu = function () {
 		$('menu').classList.remove('hidden');
 		$('hud').classList.add('hidden');
@@ -128,13 +133,13 @@
 		$('hud').classList.remove('hidden');
 	}
 
-	// Out of lives: back to the menu with a fresh player state.
+	// Out of lives: the run is over — drop it, so there is nothing left to resume.
 	game.onGameOver = function () {
 		$('menu').classList.remove('hidden');
 		$('hud').classList.add('hidden');
 		if (game.minimap) game.minimap.style.display = 'none';
 		var score = game.gs.score, floor = game._levelIndex + 1;
-		game.resetPlayerState();
+		game.clearRun();
 		refreshSaves();
 		say('Game over on floor ' + floor + ' — final score ' + score + '. Start a new game or load a save.');
 	};
@@ -201,8 +206,17 @@
 			list.appendChild(row);
 		});
 
+		// A paused run (Escape / MENU) can be picked straight back up.
+		var resumable = game.canResume();
+		$('btnResume').classList.toggle('hidden', !resumable);
+
 		box.classList.toggle('hidden', !any);
-		$('newGameLabel').textContent = (any ? '3' : '2') + ' · Start a new game';
+
+		// Number the sections in the order they actually appear.
+		var n = 2;
+		if (resumable) n++;                                  // the Resume button sits first
+		if (any) { $('savesLabel').textContent = n + ' · Continue a saved game'; n++; }
+		$('newGameLabel').textContent = n + ' · Start a new game';
 	}
 
 	// Basic feature note.

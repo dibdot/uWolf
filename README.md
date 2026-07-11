@@ -100,7 +100,8 @@ Spear of Destiny `.SOD`, …) are not supported.
 
 Desktop: **W/A/S/D** move, **←/→** turn, **Ctrl** fire, **1–4** switch weapon,
 **Space** (or **E**) use — open doors, push secret walls, ride the elevator;
-**M** toggle map, **F8** quick-save, **F9** quick-load, **Esc** back to the menu.
+**M** toggle map, **F8** quick-save, **F9** quick-load, **Esc** pause and go back to
+the menu (a **Resume game** button there picks the run straight back up).
 
 Touch: the left half of the screen is a move stick, the right half drags to
 turn, and a quick tap on the left half acts as *use* (doors, pushwalls,

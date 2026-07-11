@@ -40,6 +40,7 @@
 	};
 	// Plane codes for the "use" (Space) mechanic.
 	var PUSHABLE = 98, ELEVATOR = 21;   // PUSHABLETILE / ELEVATORTILE
+	var ARROW_FIRST = 90;               // ICONARROWS: plane1 90..97 = patrol turn arrows
 	var PUSH_SPEED = 70 / 128;          // tiles/sec — matches MovePWalls (128 tics/tile @ 70Hz)
 
 	function Game(canvas, minimap) {
@@ -162,6 +163,13 @@
 			playerMoving: function () { return self._playerMoving; },
 			sound: self.sound || null,
 			blocked: function (tx, ty) { return self.solidObjects.has(ty * w + tx); },
+			// Turn-arrow tiles (plane1 90..97 = ICONARROWS) that script patrol routes.
+			// Returns a dirtype 0..7 (east, NE, north, NW, west, SW, south, SE), or -1.
+			arrowAt: function (tx, ty) {
+				if (tx < 0 || ty < 0 || tx >= lvl.width || ty >= lvl.height) return -1;
+				var t1 = lvl.plane1[ty * w + tx];
+				return (t1 >= ARROW_FIRST && t1 <= ARROW_FIRST + 7) ? (t1 - ARROW_FIRST) : -1;
+			},
 			onKill: function () { self._stats.kills++; }
 		});
 
@@ -237,6 +245,8 @@
 			self.keys[e.code] = true;
 			if (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyE') self._use();
 			if (e.code === 'KeyM') self.toggleMap();
+			if (e.code === 'F8') { e.preventDefault(); self.quickSave(); }
+			if (e.code === 'F9') { e.preventDefault(); self.quickLoad(); }
 			if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].indexOf(e.code) >= 0) e.preventDefault();
 		});
 		window.addEventListener('keyup', function (e) { self.keys[e.code] = false; });
@@ -629,6 +639,7 @@
 			if (!held && !tap) this._levelDoneReady = true;      // wait for release first
 			if (this._levelDoneReady && (held || tap)) {
 				this.startLevel(this._pendingLevel);
+				this.autosave();
 				requestAnimationFrame(this._loop.bind(this)); // startLevel won't reschedule while running
 				return;
 			}
@@ -663,6 +674,7 @@
 		this._updateDoors(dt);
 		this._updatePushwall(dt);
 		this._updateCombat(dt);
+		if (this._toast && this._toast.t > 0) this._toast.t -= dt;
 		this.rc.pushwall = this.pushwall;
 		this.rc.render(p);
 		this._drawHUD();
@@ -736,7 +748,19 @@
 			ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 			ctx.fillStyle = '#fff'; ctx.font = 'bold ' + Math.max(16, H * 0.09) + 'px monospace';
 			ctx.fillText('DEAD', cx, (H - barH) / 2); ctx.restore();
-		} else if (this._levelDone > 0) {
+		} else if (this._toast && this._toast.t > 0) {
+			ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+			ctx.globalAlpha = Math.min(1, this._toast.t);
+			ctx.font = 'bold ' + Math.max(11, H * 0.035) + 'px monospace';
+			var tw = ctx.measureText(this._toast.msg).width + W * 0.05;
+			var th = H * 0.06, tx = (W - tw) / 2, ty = H - barH - th - H * 0.03;
+			ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(tx, ty, tw, th);
+			ctx.fillStyle = '#ffd24a';
+			ctx.fillText(this._toast.msg, W / 2, ty + th / 2);
+			ctx.restore();
+		}
+
+		if (!gs.dead && this._levelDone > 0) {
 			var st = this._stats || { floor: this._levelIndex + 1, enemies: 0, kills: 0, secretsTotal: 0, secretsFound: 0, treasureTotal: 0, treasureFound: 0 };
 			var pct = function (a, b) { return b > 0 ? Math.round(a * 100 / b) : 100; };
 			ctx.save();
@@ -866,6 +890,177 @@
 	};
 
 	function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+	// ---- Save / load -------------------------------------------------------
+	//
+	// Everything runs client-side, so a save is just a JSON snapshot kept in the
+	// browser's localStorage. Rather than dumping the whole level, we store the
+	// *deltas* against a freshly parsed map (getLevel() re-parses on every call):
+	// changed plane0 cells (settled pushwalls, the flipped elevator switch), door
+	// states, which pickups are gone, and the actor list. Loading rebuilds the
+	// floor from the data files and replays those deltas on top.
+
+	var SAVE_VERSION = 1;
+	var SAVE_PREFIX = 'uwolf.save.';
+
+	Game.prototype.saveState = function () {
+		if (!this.level || !this.data) return null;
+		var lvl = this.level, gs = this.gs, self = this;
+
+		// plane0 delta vs. the pristine map (pushwalls, elevator switch)
+		var pristine = this.data.getLevel(this._levelIndex).plane0;
+		var map = [];
+		for (var i = 0; i < lvl.plane0.length; i++) {
+			if (lvl.plane0[i] !== pristine[i]) map.push(i, lvl.plane0[i]);
+		}
+
+		// doors that are not sitting idle+closed
+		var doors = [];
+		this.doors.forEach(function (d, k) {
+			if (d.open > 0 || d.state !== 'closed' || d.timer > 0) {
+				doors.push([k, +d.open.toFixed(3), d.state, +d.timer.toFixed(2)]);
+			}
+		});
+
+		// pickups already collected: plane1 is never mutated, so the original set
+		// can be recomputed and compared against what is still on the floor.
+		var taken = [];
+		for (var idx = 0; idx < lvl.plane1.length; idx++) {
+			if (PICKUP[lvl.plane1[idx]] && !this.pickups.has(idx)) taken.push(idx);
+		}
+
+		return {
+			v: SAVE_VERSION,
+			ts: Date.now(),
+			floor: this._levelIndex,
+			player: { x: +this.player.x.toFixed(3), y: +this.player.y.toFixed(3), angle: +this.player.angle.toFixed(4) },
+			gs: {
+				health: gs.health, ammo: gs.ammo, weapon: gs.weapon, chosen: gs.chosen,
+				have: gs.have.slice(), score: gs.score, lives: gs.lives, keys: gs.keys,
+				difficulty: gs.difficulty, godmode: gs.godmode, infiniteAmmo: gs.infiniteAmmo
+			},
+			map: map,
+			doors: doors,
+			taken: taken,
+			actors: this.ai ? this.ai.serialize() : [],
+			pushwall: this.pushwall ? {
+				ax: this.pushwall.ax, ay: this.pushwall.ay, dx: this.pushwall.dx, dy: this.pushwall.dy,
+				dist: +this.pushwall.dist.toFixed(3), tile: this.pushwall.tile, max: this.pushwall.max
+			} : null,
+			stats: {
+				floor: this._stats.floor, enemies: this._stats.enemies, kills: this._stats.kills,
+				secretsTotal: this._stats.secretsTotal, secretsFound: this._stats.secretsFound,
+				treasureTotal: this._stats.treasureTotal, treasureFound: this._stats.treasureFound
+			}
+		};
+	};
+
+	Game.prototype.applyState = function (st) {
+		if (!st || st.v !== SAVE_VERSION) throw new Error('Unsupported save format');
+		if (!this.data) throw new Error('Game data not loaded');
+
+		// Difficulty decides which actors spawn, so it must be set before the
+		// floor is rebuilt.
+		this.resetPlayerState();
+		this.gs.difficulty = st.gs.difficulty | 0;
+		this.gs.godmode = !!st.gs.godmode;
+		this.gs.infiniteAmmo = !!st.gs.infiniteAmmo;
+		this.startLevel(st.floor);
+
+		// replay the map delta (settled pushwalls / flipped elevator)
+		for (var i = 0; i + 1 < st.map.length; i += 2) this.level.plane0[st.map[i]] = st.map[i + 1];
+
+		// doors
+		var self = this;
+		(st.doors || []).forEach(function (d) {
+			var door = self.doors.get(d[0]);
+			if (!door) return;
+			door.open = d[1]; door.state = d[2]; door.timer = d[3];
+		});
+
+		// remove collected pickups
+		(st.taken || []).forEach(function (idx) {
+			var pk = self.pickups.get(idx);
+			if (pk) { pk.spr.sprite = -1; self.pickups.delete(idx); }
+		});
+
+		if (this.ai) this.ai.restore(st.actors);
+
+		// player + gamestate (after startLevel, which resets keys per floor)
+		this.player.x = st.player.x; this.player.y = st.player.y;
+		this.setAngle(st.player.angle);
+		var g = st.gs, gs = this.gs;
+		gs.health = g.health; gs.ammo = g.ammo; gs.weapon = g.weapon; gs.chosen = g.chosen;
+		gs.have = g.have.slice(); gs.score = g.score; gs.lives = g.lives; gs.keys = g.keys;
+
+		this.pushwall = st.pushwall || null;
+		if (st.stats) this._stats = st.stats;
+		this._levelDone = 0;
+		return true;
+	};
+
+	// --- localStorage slots ---
+	function slotKey(slot) { return SAVE_PREFIX + slot; }
+
+	Game.prototype.saveToSlot = function (slot) {
+		var st = this.saveState();
+		if (!st) throw new Error('Nothing to save');
+		try {
+			window.localStorage.setItem(slotKey(slot), JSON.stringify(st));
+		} catch (e) {
+			throw new Error('Could not write the save (storage full or blocked)');
+		}
+		return st;
+	};
+
+	Game.prototype.loadFromSlot = function (slot) {
+		var raw;
+		try { raw = window.localStorage.getItem(slotKey(slot)); } catch (e) { raw = null; }
+		if (!raw) throw new Error('Save slot is empty');
+		return this.applyState(JSON.parse(raw));
+	};
+
+	Game.prototype.deleteSlot = function (slot) {
+		try { window.localStorage.removeItem(slotKey(slot)); } catch (e) { /* ignore */ }
+	};
+
+	// Metadata for the menu, without fully loading a save.
+	Game.prototype.slotInfo = function (slot) {
+		var raw;
+		try { raw = window.localStorage.getItem(slotKey(slot)); } catch (e) { return null; }
+		if (!raw) return null;
+		try {
+			var st = JSON.parse(raw);
+			if (st.v !== SAVE_VERSION) return null;
+			return {
+				slot: slot, ts: st.ts, floor: st.floor + 1,
+				health: st.gs.health, score: st.gs.score, lives: st.gs.lives,
+				difficulty: st.gs.difficulty
+			};
+		} catch (e) { return null; }
+	};
+
+	Game.prototype.hasSave = function (slot) { return this.slotInfo(slot) != null; };
+
+	// --- Convenience: quick save/load (F8/F9) + autosave on each new floor ---
+	Game.prototype.toast = function (msg) { this._toast = { msg: msg, t: 2.0 }; };
+
+	Game.prototype.quickSave = function () {
+		if (!this.running || !this.level) return;
+		if (this.gs.dead || this._levelDone > 0) { this.toast('Cannot save right now'); return; }
+		try { this.saveToSlot('quick'); this.toast('Game saved (F9 to load)'); }
+		catch (e) { this.toast(e.message); }
+	};
+
+	Game.prototype.quickLoad = function () {
+		if (!this.data) return;
+		try { this.loadFromSlot('quick'); this.toast('Game loaded'); }
+		catch (e) { this.toast(e.message); }
+	};
+
+	Game.prototype.autosave = function () {
+		try { this.saveToSlot('auto'); } catch (e) { /* autosave is best-effort */ }
+	};
 
 	root.WolfGame = Game;
 })(typeof window !== 'undefined' ? window : this);

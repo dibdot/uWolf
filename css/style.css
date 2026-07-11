@@ -317,3 +317,64 @@ code {
 		transition: none !important;
 	}
 }
+/* --- Saved games --- */
+#savesBox {
+	margin: 6px 0 14px;
+}
+
+#savesBox > strong {
+	display: block;
+	margin-bottom: 8px;
+}
+
+.saves {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.save-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	flex-wrap: wrap;
+	padding: 8px 10px;
+	background: #16160f;
+	border: 1px solid var(--edge);
+	border-radius: 3px;
+}
+
+.save-txt {
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.save-txt span {
+	opacity: 0.7;
+}
+
+.save-btns {
+	display: flex;
+	gap: 6px;
+}
+
+.save-btns button {
+	padding: 6px 10px;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	background: #1d1d16;
+	color: var(--ink);
+	border: 1px solid var(--edge);
+	border-radius: 3px;
+}
+
+.save-btns button:hover {
+	border-color: var(--accent);
+}
+
+.save-btns button.danger:hover {
+	border-color: #c05a4a;
+	color: #ffb4a6;
+}

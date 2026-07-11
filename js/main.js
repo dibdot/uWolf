@@ -26,6 +26,7 @@
 				sel.appendChild(o);
 			});
 			$('levelBox').classList.remove('hidden');
+			refreshSaves();
 			say('Loaded ' + game.data.numWalls + ' wall textures, ' + game.data.numSprites +
 				' sprites, ' + levels.length + ' levels.' +
 				(game.data.vga ? ' Original status bar + face enabled.' : ''));
@@ -98,10 +99,95 @@
 
 	$('btnMap').addEventListener('click', function () { game.toggleMap(); });
 	$('btnWpn').addEventListener('click', function () { game.cycleWeapon(); });
+	$('btnSave').addEventListener('click', function () { game.quickSave(); });
 	$('btnMenu').addEventListener('click', function () {
 		game.running = false; $('menu').classList.remove('hidden'); $('hud').classList.add('hidden');
 		if (game.minimap) game.minimap.style.display = 'none';
+		refreshSaves();
 	});
+
+	// --- Saved games (localStorage) ---
+	// Slots: an autosave written on every new floor, an F8 quick-save, and three
+	// manual slots. A game in progress can be stored into quick/1/2/3 from here.
+	var SLOTS = [
+		{ id: 'auto', name: 'Autosave', manual: false },
+		{ id: 'quick', name: 'Quicksave', manual: true },
+		{ id: '1', name: 'Slot 1', manual: true },
+		{ id: '2', name: 'Slot 2', manual: true },
+		{ id: '3', name: 'Slot 3', manual: true }
+	];
+	var DIFF_NAME = ['Daddy', "Don't hurt me", "Bring 'em on", 'Death incarnate'];
+
+	function enterGame() {
+		$('menu').classList.add('hidden');
+		$('hud').classList.remove('hidden');
+	}
+
+	function describe(info) {
+		var d = new Date(info.ts);
+		var when = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+		return 'Floor ' + info.floor + ' · ' + info.health + '% · ' + info.score + ' pts · ' +
+			(DIFF_NAME[info.difficulty] || '?') + ' · ' + when;
+	}
+
+	function refreshSaves() {
+		var list = $('savesList'), box = $('savesBox');
+		if (!list) return;
+		list.innerHTML = '';
+		var inGame = !!(game.data && game.level);
+		var any = false;
+
+		SLOTS.forEach(function (slot) {
+			var info = game.slotInfo(slot.id);
+			if (!info && !(inGame && slot.manual)) return;   // nothing to show for this slot
+			any = true;
+
+			var row = document.createElement('div');
+			row.className = 'save-row';
+
+			var txt = document.createElement('div');
+			txt.className = 'save-txt';
+			txt.innerHTML = '<strong>' + slot.name + '</strong><br><span>' +
+				(info ? describe(info) : 'empty') + '</span>';
+			row.appendChild(txt);
+
+			var btns = document.createElement('div');
+			btns.className = 'save-btns';
+
+			if (info) {
+				var bl = document.createElement('button');
+				bl.textContent = 'Load';
+				bl.addEventListener('click', function () {
+					try { game.loadFromSlot(slot.id); enterGame(); }
+					catch (e) { say('Load failed: ' + e.message, true); }
+				});
+				btns.appendChild(bl);
+			}
+			if (inGame && slot.manual) {
+				var bs = document.createElement('button');
+				bs.textContent = info ? 'Overwrite' : 'Save here';
+				bs.addEventListener('click', function () {
+					try { game.saveToSlot(slot.id); refreshSaves(); say('Saved to ' + slot.name + '.'); }
+					catch (e) { say('Save failed: ' + e.message, true); }
+				});
+				btns.appendChild(bs);
+			}
+			if (info) {
+				var bd = document.createElement('button');
+				bd.textContent = 'Delete';
+				bd.className = 'danger';
+				bd.addEventListener('click', function () {
+					game.deleteSlot(slot.id); refreshSaves();
+				});
+				btns.appendChild(bd);
+			}
+			row.appendChild(btns);
+			list.appendChild(row);
+		});
+
+		box.classList.toggle('hidden', !any);
+		$('newGameLabel').textContent = (any ? '3' : '2') + ' · Start a new game';
+	}
 
 	// Basic feature note.
 	if (location.protocol === 'file:') {

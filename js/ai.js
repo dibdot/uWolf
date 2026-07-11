@@ -328,7 +328,6 @@
 			if (dr.open >= 0.85) return true; // open enough to walk straight through
 			if (strict) return false;      // diagonals can't pass doors
 			if (a.cfg.dog) return false;   // dogs can't open doors
-			if (!a.flags.attackmode) return false; // only actively-chasing actors open doors
 			return dr;                     // openable door: caller opens and waits
 		}
 		var o = this.occAt(tx, ty);
@@ -338,6 +337,7 @@
 	};
 
 	WolfAI.prototype.tryWalk = function (a) {
+		if (a.dir === NODIR) return false;
 		var v = DIRVEC[a.dir];
 		var nx = a.tilex + v[0], ny = a.tiley + v[1];
 		var diag = v[0] !== 0 && v[1] !== 0;
@@ -382,14 +382,17 @@
 	};
 
 	// Straight patrol: keep going; on block, pick any open cardinal (no arrows).
+	// Patrol routing, as SelectPathDir does it: the map's turn-arrow tiles
+	// (plane1 codes 90..97 = ICONARROWS, one per direction) script the route —
+	// standing on one sets the actor's direction. Otherwise it keeps walking
+	// straight; if the next step is blocked it stops (dir = nodir) until it
+	// sights the player.
 	WolfAI.prototype.selectPathDir = function (a) {
-		if (a.dir !== NODIR && this.tryWalk(a)) return;
-		var order = [a.dir, 2, 0, 6, 4];
-		for (var i = 0; i < order.length; i++) {
-			var d = order[i]; if (d === NODIR) continue;
-			a.dir = d; if (this.tryWalk(a)) return;
+		if (this.env.arrowAt) {
+			var d = this.env.arrowAt(a.tilex, a.tiley);
+			if (d >= 0) a.dir = d;
 		}
-		a.dir = NODIR;
+		if (!this.tryWalk(a)) a.dir = NODIR;
 	};
 
 	// Advance along dir; block against the player's personal space. Returns
@@ -630,6 +633,63 @@
 
 	// Mark actors visible this frame (called by game after computing FOV).
 	WolfAI.prototype.setVisible = function (a, v) { a.flags.visible = v; };
+
+	// ---- Save / load -------------------------------------------------------
+	// Actors are saved positionally: the spawn scan is deterministic, so index i
+	// in this list is the same actor after a fresh startLevel() with the same
+	// difficulty. Mid-animation frames (shoot/pain/die) are NOT preserved — an
+	// actor resumes cleanly as dead, chasing, or as originally spawned.
+	WolfAI.prototype.serialize = function () {
+		var out = [];
+		for (var i = 0; i < this.actors.length; i++) {
+			var a = this.actors[i], f = a.flags;
+			out.push({
+				x: +a.x.toFixed(3), y: +a.y.toFixed(3), d: a.dir, hp: a.hp,
+				dd: f.dead ? 1 : 0, am: f.attackmode ? 1 : 0,
+				ac: f.active ? 1 : 0, ab: f.ambush ? 1 : 0
+			});
+		}
+		return out;
+	};
+
+	WolfAI.prototype.restore = function (list) {
+		if (!list) return;
+		var n = Math.min(list.length, this.actors.length);
+		for (var i = 0; i < n; i++) {
+			var a = this.actors[i], s = list[i], S = a.S;
+			a.x = s.x; a.y = s.y;
+			a.tilex = a.x | 0; a.tiley = a.y | 0;
+			a.dir = (s.d == null) ? NODIR : s.d;
+			a.hp = s.hp;
+			a.distance = 0; a.temp2 = 0;
+			a.flags.dead = !!s.dd;
+			a.flags.attackmode = !!s.am;
+			a.flags.active = !!s.ac;
+			a.flags.ambush = !!s.ab;
+			a.flags.visible = false;
+			a.flags.hidden = false;
+			a.flags.shootable = !s.dd;
+
+			if (s.dd) {                       // corpse: final death frame
+				a.state = S.dead; a.ticcount = 0; a.dir = NODIR;
+				a.sprite = a.cfg.DEAD;
+			} else if (s.am) {                // was hunting the player
+				a.state = S.chase1; a.ticcount = a.state.tics || 0;
+				a.speed = a.cfg.chase;
+			}                                 // else: keep the freshly spawned stand/patrol state
+		}
+		this._rebuildOcc();
+	};
+
+	// Occupancy grid must match the restored positions.
+	WolfAI.prototype._rebuildOcc = function () {
+		this.occ.clear();
+		for (var i = 0; i < this.actors.length; i++) {
+			var a = this.actors[i];
+			if (a.flags.dead || !a.flags.shootable) continue;
+			this.occ.set(this._key(a.tilex, a.tiley), a);
+		}
+	};
 
 	root.WolfAI = WolfAI;
 })(typeof window !== 'undefined' ? window : this);

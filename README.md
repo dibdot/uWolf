@@ -83,6 +83,10 @@ Spear of Destiny `.SOD`, …) are not supported.
 - **The original VGAGRAPH status bar and BJ face** (health-driven, with the
   number/weapon/key icons), when you also supply `VGAGRAPH`/`VGAHEAD`/`VGADICT`;
   otherwise a minimal built-in HUD is used
+- **Saved games**, stored in the browser's `localStorage` — an autosave written
+  on entering each new floor, an F8 quick-save, and three manual slots, all
+  listed on the menu with load/overwrite/delete. Entirely client-side; the
+  router stores nothing.
 - Minimap (off by default — toggle with M or the MAP button)
 - Keyboard + mouse on desktop, dual-zone touch controls plus WPN button on
   mobile
@@ -91,12 +95,39 @@ Spear of Destiny `.SOD`, …) are not supported.
 ## Controls
 
 Desktop: **W/A/S/D** move, **←/→** turn, **Ctrl** fire, **1–4** switch weapon,
-**Space** (or **E**) use — open doors, push secret walls, ride the elevator; **M** toggle map. Touch: left half
-is a move stick, right half drags to turn, **FIRE** shoots (hold for the
-automatic weapons), **WPN** cycles weapons, **OPEN** opens doors.
+**Space** (or **E**) use — open doors, push secret walls, ride the elevator;
+**M** toggle map, **F8** quick-save, **F9** quick-load.
+
+Touch: the left half of the screen is a move stick, the right half drags to
+turn, and a quick tap on the left half acts as *use* (doors, pushwalls,
+elevator). **WPN** cycles weapons, **MAP** toggles the minimap and **SAVE**
+quick-saves. Firing is currently keyboard-only (**Ctrl**).
 
 On the menu, before entering a level, you can set the difficulty and toggle
 **God mode**, **Infinite ammo**, and **All weapons**.
+
+## Saved games
+
+Saves live in the browser's `localStorage`, so they work entirely offline and
+the router never stores anything — but they are per-browser and per-origin, and
+clearing the site data removes them.
+
+- **Autosave** — written whenever you ride the elevator onto a new floor.
+- **Quicksave** — **F8** in game (or the **SAVE** button); **F9** loads it back.
+- **Slots 1–3** — from the menu: press **MENU** during a game and store the run
+  into a slot (or overwrite/delete an existing one). Saves are listed with
+  floor, health, score and difficulty.
+
+A save is a JSON snapshot of the run: floor, player position and facing, health,
+ammo, weapons, keys, score and lives, plus door states, the pushwalls you have
+already opened, the flipped elevator switch, which items you picked up, and where
+every enemy stands — including who is already dead and who is hunting you. Only
+the *deltas* against a freshly parsed map are stored rather than the level
+itself, so a save is a few KB.
+
+One deliberate simplification: an actor's mid-animation frame is not preserved.
+On load, enemies resume cleanly as dead, as hunting you, or as originally placed
+— an enemy caught mid-shot won't finish that particular shot.
 
 ## What it does NOT do (yet)
 
@@ -119,18 +150,19 @@ timings), sighting and per-class reaction times, `SelectChaseDir`/`TryWalk`/
 `MoveObj` grid movement, the `T_Shoot` hit-probability and damage formulas,
 `DamageActor`/`KillActor` (including the double-damage surprise bonus and
 per-difficulty hitpoints), and the player `GunAttack`/`KnifeAttack` damage
-tables and baby-mode damage discount.
+tables and baby-mode damage discount. Patrolling guards follow the map's
+scripted routes: the invisible turn-arrow tiles (`ICONARROWS`, plane-1 codes
+90–97) steer them exactly as `SelectPathDir` does, so they walk the loops the
+level designers laid out — opening doors along the way — instead of wandering.
 
 Deliberately simplified (and easy to extend later):
 
-- **Patrol routes ignore the map's turn-arrow tiles** — patrolling actors walk
-  straight and turn at walls rather than following scripted paths.
 - **Activation is approximated by line of sight plus a one-hop gunfire noise.**
   A shot floods the current room and any room exactly ONE open doorway away
   (closed doors and walls block it, and a second door is never crossed), so it
   alerts immediate neighbours without cascading across the level. Actors also
-  wake on line of sight. Only actively chasing actors open doors; patrolling
-  guards treat a closed door as a wall.
+  wake on line of sight. (The original instead flood-fills connected map
+  "areas", which are opened up door by door as you play.)
 - **Line-of-sight treats a door as see-through once it is roughly half open**,
   rather than testing the exact door-slab intercept.
 - **Bosses use a generic ranged chase** (correct frames, hitpoints and sounds)

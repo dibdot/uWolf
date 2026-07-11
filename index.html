@@ -17,6 +17,7 @@
 	<div id="hud" class="hidden">
 		<button id="btnMap" class="hud-btn" aria-label="Toggle map">MAP</button>
 		<button id="btnWpn" class="hud-btn" aria-label="Switch weapon">WPN</button>
+		<button id="btnSave" class="hud-btn" aria-label="Save game">SAVE</button>
 		<button id="btnMenu" class="hud-btn" aria-label="Back to menu">MENU</button>
 	</div>
 
@@ -47,7 +48,12 @@
 				files above and press Retry.</p>
 
 			<div id="levelBox" class="hidden">
-				<label for="levelSel"><strong>2 · Pick a level</strong></label>
+				<div id="savesBox" class="hidden">
+					<strong>2 · Continue a saved game</strong>
+					<div id="savesList" class="saves"></div>
+				</div>
+
+				<label for="levelSel"><strong id="newGameLabel">2 · Start a new game</strong></label>
 				<select id="levelSel"></select>
 
 				<div class="opts">

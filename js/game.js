@@ -996,16 +996,31 @@
 		ctx.clearRect(0, 0, size, size);
 		ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, size, size);
 		var cx = p.x, cy = p.y;
+		var secrets = [];
 		for (var dy = -view; dy < view; dy++) {
 			for (var dx = -view; dx < view; dx++) {
 				var mx = (cx + dx) | 0, my = (cy + dy) | 0;
 				if (mx < 0 || my < 0 || mx >= lvl.width || my >= lvl.height) continue;
-				var t = lvl.plane0[my * lvl.width + mx];
+				var idx = my * lvl.width + mx;
+				var t = lvl.plane0[idx];
 				if (isWall(t)) ctx.fillStyle = '#8a8a8a';
 				else if (isDoor(t)) ctx.fillStyle = '#c8a24b';
 				else continue;
 				ctx.fillRect((mx - cx + view) * cell, (my - cy + view) * cell, cell + 0.5, cell + 0.5);
+				// A pushable tile still carrying its marker is a secret you haven't
+				// opened yet — _startPushwall() clears plane1, so found ones drop out
+				// on their own. Collected here, drawn after the walls so nothing
+				// paints over the dots.
+				if (lvl.plane1[idx] === PUSHABLE) secrets.push([mx, my]);
 			}
+		}
+
+		// Secret doors (comfort feature — the original never showed these).
+		ctx.fillStyle = '#e03a2f';
+		for (var si = 0; si < secrets.length; si++) {
+			var sx = (secrets[si][0] - cx + view + 0.5) * cell;
+			var sy = (secrets[si][1] - cy + view + 0.5) * cell;
+			ctx.beginPath(); ctx.arc(sx, sy, Math.max(1.4, cell * 0.32), 0, Math.PI * 2); ctx.fill();
 		}
 		// Player.
 		ctx.fillStyle = '#48d048';

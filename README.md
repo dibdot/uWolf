@@ -91,7 +91,9 @@ Spear of Destiny `.SOD`, …) are not supported.
   on entering each new floor, an F8 quick-save, and three manual slots, all
   listed on the menu with load/overwrite/delete. Entirely client-side; the
   router stores nothing.
-- Minimap (off by default — toggle with M or the MAP button)
+- Minimap (off by default — toggle with M or the MAP button). Secret doors you
+  haven't opened yet are marked with a **red dot**; the marker disappears once
+  you push the wall. This is a comfort feature — the original never showed them.
 - Keyboard + mouse on desktop, dual-zone touch controls plus WPN button on
   mobile
 - Adjustable internal render resolution for weaker devices

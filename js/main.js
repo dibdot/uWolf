@@ -100,11 +100,16 @@
 	$('btnMap').addEventListener('click', function () { game.toggleMap(); });
 	$('btnWpn').addEventListener('click', function () { game.cycleWeapon(); });
 	$('btnSave').addEventListener('click', function () { game.quickSave(); });
-	$('btnMenu').addEventListener('click', function () {
-		game.running = false; $('menu').classList.remove('hidden'); $('hud').classList.add('hidden');
+	$('btnMenu').addEventListener('click', function () { game.exitToMenu(); });
+
+	// Back to the menu — from the MENU button or the Escape key (game.onMenu).
+	// The run stays in memory, so it can still be stored into a slot from here.
+	game.onMenu = function () {
+		$('menu').classList.remove('hidden');
+		$('hud').classList.add('hidden');
 		if (game.minimap) game.minimap.style.display = 'none';
 		refreshSaves();
-	});
+	};
 
 	// --- Saved games (localStorage) ---
 	// Slots: an autosave written on every new floor, an F8 quick-save, and three
@@ -123,6 +128,17 @@
 		$('hud').classList.remove('hidden');
 	}
 
+	// Out of lives: back to the menu with a fresh player state.
+	game.onGameOver = function () {
+		$('menu').classList.remove('hidden');
+		$('hud').classList.add('hidden');
+		if (game.minimap) game.minimap.style.display = 'none';
+		var score = game.gs.score, floor = game._levelIndex + 1;
+		game.resetPlayerState();
+		refreshSaves();
+		say('Game over on floor ' + floor + ' — final score ' + score + '. Start a new game or load a save.');
+	};
+
 	function describe(info) {
 		var d = new Date(info.ts);
 		var when = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -134,7 +150,7 @@
 		var list = $('savesList'), box = $('savesBox');
 		if (!list) return;
 		list.innerHTML = '';
-		var inGame = !!(game.data && game.level);
+		var inGame = !!(game.data && game.level && !game.gs.dead);
 		var any = false;
 
 		SLOTS.forEach(function (slot) {

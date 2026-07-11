@@ -77,6 +77,7 @@
 	var WP = { KNIFE: 0, PISTOL: 1, MG: 2, CHAINGUN: 3 };
 	var WP_NAME = ['Knife', 'Pistol', 'MG', 'Chaingun'];
 	var FIRE_CD = [0.40, 0.28, 0.12, 0.07];  // seconds between shots per weapon
+	var STARTAMMO = 8;                       // what you (re)start a life with
 	// POV weapon sprites in VSWAP: contiguous blocks of 5 pages each
 	// (ready, atk1..atk4). Rendered bottom-centre over the scene.
 	var WEAPON_BASE = [416, 421, 426, 431];
@@ -89,9 +90,10 @@
 	// Full player reset (called from the menu before the first level).
 	Game.prototype.resetPlayerState = function () {
 		this.gs = {
-			health: 100, ammo: 8, weapon: WP.PISTOL, chosen: WP.PISTOL,
+			health: 100, ammo: STARTAMMO, weapon: WP.PISTOL, chosen: WP.PISTOL,
 			have: [true, true, false, false],
 			score: 0, lives: 3, difficulty: 1, godmode: false, infiniteAmmo: false, keys: 0,
+			allWeapons: false, gameOver: false,
 			damageFlash: 0, fireCd: 0, dead: false, respawn: 0,
 			wpnAnimT: 0, wpnAnimDur: 0, bob: 0, faceframe: 0, faceTimer: 0
 		};
@@ -104,11 +106,21 @@
 		if (this.minimap) this.minimap.style.display = this.showMap ? 'block' : 'none';
 	};
 	Game.prototype.toggleMap = function () { this.setShowMap(!this.showMap); };
+
+	// Leave the running game and hand back to the menu (Escape key / MENU button).
+	// main.js supplies onMenu, which restores the menu DOM; the game state stays
+	// intact, so the run can still be saved into a slot from there.
+	Game.prototype.exitToMenu = function () {
+		if (!this.running) return;
+		this.running = false;
+		if (this.onMenu) this.onMenu();
+	};
 	Game.prototype.setInfiniteAmmo = function (on) {
 		this.gs.infiniteAmmo = !!on;
 		if (on) this.gs.ammo = Math.max(this.gs.ammo, 99);
 	};
 	Game.prototype.setAllWeapons = function (on) {
+		this.gs.allWeapons = !!on;      // remembered, so a respawn restores them
 		if (!on) return;
 		this.gs.have = [true, true, true, true];
 		this.gs.ammo = Math.max(this.gs.ammo, 99);
@@ -245,6 +257,7 @@
 			self.keys[e.code] = true;
 			if (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyE') self._use();
 			if (e.code === 'KeyM') self.toggleMap();
+			if (e.code === 'Escape') { e.preventDefault(); self.exitToMenu(); }
 			if (e.code === 'F8') { e.preventDefault(); self.quickSave(); }
 			if (e.code === 'F9') { e.preventDefault(); self.quickLoad(); }
 			if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].indexOf(e.code) >= 0) e.preventDefault();
@@ -328,6 +341,7 @@
 
 		// Death / respawn: freeze the world while dead, then restart the level.
 		if (gs.dead) {
+			if (gs.gameOver) return;          // out of lives: wait for acknowledgement
 			gs.respawn -= dt;
 			if (gs.respawn <= 0) this._respawn();
 			return;
@@ -461,14 +475,33 @@
 		this.gs.have[w] = true; this.gs.weapon = this.gs.chosen = w;
 	};
 
+	// Death handling, as the original does it (wl_game.cpp): lives is decremented
+	// first, and you respawn as long as it stays above -1 — so you really do keep
+	// playing while the bar shows 0 lives, and the *next* death ends the game.
+	// A respawn also costs you your good weapons and spare ammo (back to the
+	// pistol and STARTAMMO); the score is kept.
 	Game.prototype._respawn = function () {
 		var gs = this.gs;
 		gs.lives -= 1;
-		if (gs.lives < 0) { gs.lives = 3; gs.score = 0; }   // endless: full restart
-		gs.health = 100; gs.ammo = Math.max(gs.ammo, 8);
-		gs.weapon = gs.have[WP.PISTOL] ? WP.PISTOL : WP.KNIFE;
-		gs.chosen = gs.weapon; gs.dead = false; gs.damageFlash = 0;
+		if (gs.lives < 0) { this._gameOver(); return; }
+
+		gs.health = 100;
+		gs.ammo = gs.infiniteAmmo ? 99 : STARTAMMO;
+		gs.have = gs.allWeapons ? [true, true, true, true] : [true, true, false, false];
+		gs.weapon = gs.chosen = WP.PISTOL;
+		gs.dead = false; gs.damageFlash = 0;
 		this.startLevel(this._levelIndex);
+	};
+
+	// Out of lives: freeze on a GAME OVER screen until the player acknowledges it,
+	// then hand back to the menu (main.js supplies onGameOver).
+	Game.prototype._gameOver = function () {
+		var gs = this.gs;
+		gs.lives = 0;          // never display -1
+		gs.dead = true;        // keep the world frozen
+		gs.gameOver = true;
+		gs.respawn = 0;
+		this._gameOverReady = false;
 	};
 
 	// ---- Doors -------------------------------------------------------------
@@ -626,11 +659,40 @@
 
 	// ---- Main loop ---------------------------------------------------------
 
+	// The frame driver. A thrown exception used to skip the requestAnimationFrame
+	// call at the end and freeze the game for good (you could only escape via the
+	// menu). Now the frame body is guarded: an error is reported and the loop
+	// keeps running, so one bad frame can't kill the session.
 	Game.prototype._loop = function (now) {
-		var dt = Math.min(0.05, (now - this._last) / 1000);
+		var dt = Math.max(0, Math.min(0.05, (now - this._last) / 1000));
 		this._last = now;
+		try {
+			this._frame(dt);
+		} catch (e) {
+			if (typeof console !== 'undefined') console.error('[uWolf] frame error:', e);
+			this.toast('Frame error: ' + (e && e.message ? e.message : e));
+		}
+		if (this.running) requestAnimationFrame(this._loop.bind(this));
+	};
+
+	Game.prototype._frame = function (dt) {
 		var p = this.player, k = this.keys, gs = this.gs;
 		var frozen = gs.dead || this._levelDone > 0;
+
+		// Out of lives: hold the GAME OVER screen until the player acknowledges.
+		if (gs.gameOver) {
+			var goHeld = !!(k['Space'] || k['Enter'] || k['NumpadEnter'] || k['KeyE']);
+			var goTap = this._continueTap; this._continueTap = false;
+			if (!goHeld && !goTap) this._gameOverReady = true;   // wait for release first
+			if (this._gameOverReady && (goHeld || goTap)) {
+				this.running = false;
+				if (this.onGameOver) this.onGameOver();
+				return;
+			}
+			this.rc.render(p);
+			this._drawHUD();
+			return;
+		}
 
 		// Elevator: hold the floor-stats screen until the player presses a key/taps.
 		if (this._levelDone > 0) {
@@ -640,8 +702,7 @@
 			if (this._levelDoneReady && (held || tap)) {
 				this.startLevel(this._pendingLevel);
 				this.autosave();
-				requestAnimationFrame(this._loop.bind(this)); // startLevel won't reschedule while running
-				return;
+				return;                                          // _loop reschedules
 			}
 		}
 
@@ -679,8 +740,6 @@
 		this.rc.render(p);
 		this._drawHUD();
 		if (this.showMap) this._drawMinimap();
-
-		if (this.running) requestAnimationFrame(this._loop.bind(this));
 	};
 
 	// ---- HUD ---------------------------------------------------------------
@@ -744,11 +803,28 @@
 			ctx.restore();
 		}
 
-		if (gs.dead) {
+		if (gs.gameOver) {
+			ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+			ctx.globalAlpha = 0.72; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+			ctx.globalAlpha = 1;
+			ctx.fillStyle = '#c0392b';
+			ctx.font = 'bold ' + Math.max(20, H * 0.12) + 'px monospace';
+			ctx.fillText('GAME OVER', cx, H * 0.42);
+			ctx.fillStyle = '#d8d8d8';
+			ctx.font = 'bold ' + Math.max(10, H * 0.035) + 'px monospace';
+			ctx.fillText('SCORE ' + gs.score + '  ·  FLOOR ' + (this._levelIndex + 1), cx, H * 0.56);
+			ctx.fillStyle = '#8a8a8a';
+			ctx.font = Math.max(9, H * 0.028) + 'px monospace';
+			ctx.fillText('press space / tap to continue', cx, H * 0.66);
+			ctx.restore();
+		} else if (gs.dead) {
 			ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 			ctx.fillStyle = '#fff'; ctx.font = 'bold ' + Math.max(16, H * 0.09) + 'px monospace';
 			ctx.fillText('DEAD', cx, (H - barH) / 2); ctx.restore();
-		} else if (this._toast && this._toast.t > 0) {
+		}
+
+		// Toast (save/load feedback, error reports) — shown even while dead.
+		if (this._toast && this._toast.t > 0) {
 			ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 			ctx.globalAlpha = Math.min(1, this._toast.t);
 			ctx.font = 'bold ' + Math.max(11, H * 0.035) + 'px monospace';
@@ -937,7 +1013,8 @@
 			gs: {
 				health: gs.health, ammo: gs.ammo, weapon: gs.weapon, chosen: gs.chosen,
 				have: gs.have.slice(), score: gs.score, lives: gs.lives, keys: gs.keys,
-				difficulty: gs.difficulty, godmode: gs.godmode, infiniteAmmo: gs.infiniteAmmo
+				difficulty: gs.difficulty, godmode: gs.godmode, infiniteAmmo: gs.infiniteAmmo,
+				allWeapons: gs.allWeapons
 			},
 			map: map,
 			doors: doors,
@@ -965,6 +1042,7 @@
 		this.gs.difficulty = st.gs.difficulty | 0;
 		this.gs.godmode = !!st.gs.godmode;
 		this.gs.infiniteAmmo = !!st.gs.infiniteAmmo;
+		this.gs.allWeapons = !!st.gs.allWeapons;
 		this.startLevel(st.floor);
 
 		// replay the map delta (settled pushwalls / flipped elevator)
@@ -1003,6 +1081,9 @@
 	function slotKey(slot) { return SAVE_PREFIX + slot; }
 
 	Game.prototype.saveToSlot = function (slot) {
+		if (this.gs && (this.gs.dead || this.gs.gameOver)) {
+			throw new Error('Cannot save while dead');   // would restore you on 0 health
+		}
 		var st = this.saveState();
 		if (!st) throw new Error('Nothing to save');
 		try {

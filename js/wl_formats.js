@@ -200,14 +200,20 @@
 		var ctx = canvas.getContext('2d');
 		var img = ctx.createImageData(64, 64);
 		var data = img.data; // starts fully transparent (alpha 0)
-		if (page < this.spriteStart || page >= this.soundStart) { ctx.putImageData(img, 0, 0); return canvas; }
+		// NaN-safe range test: written as `!(in range)` on purpose, because every
+		// comparison with NaN is false, so `page < start || page >= end` would let a
+		// NaN index straight through and we'd decode garbage (negative column counts).
+		if (!(page >= this.spriteStart && page < this.soundStart)) { ctx.putImageData(img, 0, 0); return canvas; }
 		var base = this.pageOffset[page];
+		if (base == null) { ctx.putImageData(img, 0, 0); return canvas; }
 		var src = this.vswap;
 		var pal = this.pal;
 		var dv = new DataView(src.buffer, base);
 		var firstCol = dv.getUint16(0, true);
 		var lastCol = dv.getUint16(2, true);
 		var numCols = lastCol - firstCol + 1;
+		// Refuse to decode an implausible header rather than throwing on a bad length.
+		if (numCols <= 0 || numCols > 64 || lastCol > 63) { ctx.putImageData(img, 0, 0); return canvas; }
 		// Per-column command offsets (bytes, relative to sprite chunk start).
 		var colOfs = new Uint16Array(numCols);
 		for (var i = 0; i < numCols; i++) colOfs[i] = dv.getUint16(4 + i * 2, true);

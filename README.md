@@ -49,8 +49,12 @@ Spear of Destiny `.SOD`, …) are not supported.
   including opening doors), shooting with the original distance-based hit
   probability and damage, dog melee, pain/death animations, and scoring
 - **Player weapons** (knife, pistol, machine gun, chain gun) with ammo,
-  hitscan targeting under the crosshair, health, lives, damage flash, and
-  respawn
+  hitscan targeting under the crosshair, health, damage flash, and scoring
+- **Lives, respawn and game over**, exactly as the original does it: dying
+  decrements your lives and restarts the floor, and a respawn costs you the good
+  weapons and your spare ammo (back to the pistol and 8 rounds) while the score
+  is kept. Lives is decremented *before* the check, so you keep playing while the
+  bar shows 0 — the next death after that ends the run on a GAME OVER screen.
 - **Difficulty levels** (all four skill settings) affecting enemy hitpoints,
   reaction/aim, damage taken, and which actors spawn; plus a **God-mode** toggle.
   Enemy *count* follows the original exactly: the base placements spawn at every
@@ -96,7 +100,7 @@ Spear of Destiny `.SOD`, …) are not supported.
 
 Desktop: **W/A/S/D** move, **←/→** turn, **Ctrl** fire, **1–4** switch weapon,
 **Space** (or **E**) use — open doors, push secret walls, ride the elevator;
-**M** toggle map, **F8** quick-save, **F9** quick-load.
+**M** toggle map, **F8** quick-save, **F9** quick-load, **Esc** back to the menu.
 
 Touch: the left half of the screen is a move stick, the right half drags to
 turn, and a quick tap on the left half acts as *use* (doors, pushwalls,
@@ -178,6 +182,8 @@ sprites here.
 ```
 uWolf/
   index.html        menu (difficulty + God-mode), data loading, HUD
+  favicon.ico       16/32/48 px pixel-art wolf head (also favicon.svg)
+  favicon.svg
   css/style.css
   js/palette.js     256-colour VGA palette (+ runtime override hook)
   js/wl_formats.js  VSWAP + Carmack/RLEW map parsing, texture/sprite/sound decode

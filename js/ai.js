@@ -66,7 +66,11 @@
 			hp: HP.mutant, pts: 700
 		},
 		dog: {
-			W: 99, DEAD: 134,
+			// The original has no dog "stand" state at all: SpawnStand() simply has no
+			// en_dog case, even though ScanInfoPlane sends codes 134-137 there (a latent
+			// bug in the original). A stationary dog therefore has no frames of its own —
+			// we use walk frame 1, which is what a standing dog looks like.
+			S: 99, W: 99, DEAD: 134,
 			JUMP: [[135, 10, 0], [136, 10, 1], [137, 10, 0], [135, 10, 0], [99, 10, 0]],
 			DIE: [[131, 15, 1], [132, 15, 0], [133, 15, 0]],
 			patrol: spd(1500), chase: spd(3000), sight: DIGI.DOGBARK, fire: -1,
@@ -248,9 +252,12 @@
 			temp2: 0, ticcount: 0,
 			state: spawn.patrol ? S.path1 : S.stand,
 			flags: { attackmode: false, ambush: false, shootable: true, visible: false, active: false, hidden: false, dead: false },
-			sprite: cfg.boss ? cfg.W : (spawn.rotate ? cfg.S + spawn.dirType : cfg.W),
+			sprite: 0,
 			S: S
 		};
+		// Derive the first frame from the state we actually start in. (Reading it
+		// from cfg.S instead used to yield NaN for any type without stand frames.)
+		a.sprite = a.state.rot ? a.state.spr + (spawn.rotate ? spawn.dirType : 0) : a.state.spr;
 		if (a.state.tics) a.ticcount = 1 + (this.env.rnd() % a.state.tics);
 		this.occ.set(this._key(a.tilex, a.tiley), a);
 		this.actors.push(a);

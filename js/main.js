@@ -22,7 +22,11 @@
 			sel.innerHTML = '';
 			levels.forEach(function (lv) {
 				var o = document.createElement('option');
-				o.value = lv.index; o.textContent = (lv.index + 1) + ' — ' + lv.name;
+				// Levels are grouped ten per episode; the game itself counts floors
+				// within an episode, so label them the same way.
+				var ep = ((lv.index / 10) | 0) + 1, fl = (lv.index % 10) + 1;
+				o.value = lv.index;
+				o.textContent = 'E' + ep + ' F' + fl + ' — ' + lv.name;
 				sel.appendChild(o);
 			});
 			$('levelBox').classList.remove('hidden');

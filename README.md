@@ -190,8 +190,31 @@ Deliberately simplified (and easy to extend later):
   "areas", which are opened up door by door as you play.)
 - **Line-of-sight treats a door as see-through once it is roughly half open**,
   rather than testing the exact door-slab intercept.
-- **Bosses use a generic ranged chase** (correct frames, hitpoints and sounds)
-  rather than each boss's unique attack pattern.
+- **Bosses use a generic ranged chase** rather than each boss's unique attack
+  pattern. Everything else about them is per-boss and taken from the source:
+  frames, sounds (each has his own taunt and death cry), points, the real
+  `starthitpoints` (Schabbs has 2400 on hard, Fake Hitler only 500 — they are
+  nowhere near each other), and how the floor ends:
+  - **Hans** (episode 1) and **Gretel** (episode 5) drop the **gold key**. You unlock
+    the door with it and walk out of the castle onto the **exit tile** — which is
+    also the only place B.J. ever says anything.
+  - **Schabbs**, **Giftmacher** and **Fat Face** end the floor the moment they die
+    (`A_StartDeathCam` → `ex_victorious`). Those floors have no elevator at all.
+  - **Mecha Hitler** ends nothing: `A_HitlerMorph` puts **Adolf** himself in his
+    place — faster than any other boss, a five-shot burst, seven frames to die —
+    and only *his* death ends the floor.
+  - **Fake Hitler** is none of the above: just a very tough regular enemy.
+
+  The kill itself doesn't end the floor either — the ending hangs off the *last*
+  death frame, exactly as `A_StartDeathCam` does, so the boss finishes going down
+  before the intermission appears.
+- **Floor progression is per episode**, not a flat +1: ten floors each (eight
+  normal, the boss floor, then the secret floor). The elevator takes you to the
+  next floor; standing on the *alternate* elevator tile takes you to the secret
+  floor instead; leaving the secret floor drops you back at `ElevatorBackTo[]`
+  = 1,1,7,3,5,3. Killing the boss — or stepping on the castle **exit tile**
+  (plane-1 code 99), which is how the Hans and Gretel floors finish and where
+  B.J.'s one and only line comes from — ends the whole **episode**.
 
 The player's POV weapon (knife / pistol / machine gun / chain gun) **is** drawn,
 using the ready/attack frames straight from your `VSWAP` sprite pages. The

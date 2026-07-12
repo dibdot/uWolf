@@ -78,19 +78,70 @@
 		}
 	};
 
-	var BOSS = { // [W1, SHOOT1, DIE1, DEAD, sightSound]
-		hans: [296, 300, 304, 303, DIGI.GUTENTAG], gretel: [385, 389, 393, 392, DIGI.GUTENTAG],
-		gift: [360, 364, 366, 369, DIGI.GUTENTAG], fat: [396, 400, 404, 407, DIGI.GUTENTAG],
-		schabbs: [307, 311, 313, 316, DIGI.SCHABBSHA], fake: [321, 325, 328, 333, DIGI.TOTHUND],
-		mecha: [334, 338, 342, 341, DIGI.GUTENTAG]
+	// [W1, SHOOT1, DIE1, DEAD, sightSound, ending]
+	//
+	// How a boss floor ends is NOT the same for every boss (this trips people up):
+	//   - Hans and Gretel just die. KillActor() drops a GOLD KEY (bo_key1) on their
+	//     tile, and you still have to unlock the door and ride the elevator out.
+	//   - Schabbs, Giftmacher, Fat Face and Hitler end the floor the moment they
+	//     die: their last death frame runs A_StartDeathCam, which leads to
+	//     ex_victorious. Those floors have no elevator for you to find.
+	//   - Fake Hitler is neither — he's just a very tough regular enemy.
+	// Per-boss data, straight from the source. Note how little of this is uniform —
+	// a single "generic boss" was simply wrong:
+	//
+	//   end 'key'     — Hans / Gretel: KillActor drops bo_key1; you still ride out.
+	//   end 'victory' — Schabbs / Gift / Fat / real Hitler: the last death frame runs
+	//                   A_StartDeathCam -> ex_victorious. Those floors have no elevator.
+	//   end 'morph'   — Mecha Hitler: A_HitlerMorph replaces him with Adolf himself,
+	//                   who then has to be killed as well.
+	//   end null      — Fake Hitler: just a very tough regular enemy.
+	//
+	// hp is starthitpoints[difficulty]; note that Schabbs (2400 on hard!) and Fake
+	// Hitler (500) are nowhere near the rest.
+	var BOSS = {
+		hans:    { W: 296, SHOOT1: 300, DIE1: 304, dieN: 3, DEAD: 303, sight: DIGI.GUTENTAG,
+			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.MUTTI, end: 'key' },
+		gretel:  { W: 385, SHOOT1: 389, DIE1: 393, dieN: 3, DEAD: 392, sight: DIGI.KEIN,
+			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.MEIN, end: 'key' },
+		gift:    { W: 360, SHOOT1: 364, DIE1: 366, dieN: 3, DEAD: 369, sight: DIGI.EINE,
+			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.DONNER, end: 'victory' },
+		fat:     { W: 396, SHOOT1: 400, DIE1: 404, dieN: 3, DEAD: 407, sight: DIGI.ERLAUBEN,
+			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.ROSE, end: 'victory' },
+		schabbs: { W: 307, SHOOT1: 311, DIE1: 313, dieN: 3, DEAD: 316, sight: DIGI.SCHABBSHA,
+			hp: [850, 950, 1550, 2400], pts: 5000, death: DIGI.MEINGOTT, end: 'victory' },
+		fake:    { W: 321, SHOOT1: 325, DIE1: 328, dieN: 5, DEAD: 333, sight: DIGI.TOTHUND,
+			hp: [200, 300, 400, 500], pts: 2000, death: DIGI.HITLERHA, end: null },
+		mecha:   { W: 334, SHOOT1: 338, DIE1: 342, dieN: 3, DEAD: 341, sight: DIGI.DIE,
+			hp: [800, 950, 1050, 1200], pts: 5000, death: DIGI.SCHEIST,
+			end: 'morph', morphTo: 'hitler' },
+		// Adolf himself: steps out of the suit when Mecha Hitler falls. Faster than any
+		// other boss (SPDPATROL*5), fires a five-shot burst, takes seven frames to die.
+		hitler:  { W: 345, SHOOT1: 349, DIE1: 353, dieN: 7, DEAD: 352, sight: DIGI.DIE,
+			hp: [500, 700, 800, 900], pts: 5000, death: DIGI.EVA, end: 'victory',
+			chase: 2560,
+			SHOOT: [[349, 30, 0], [350, 10, 1], [351, 10, 1], [350, 10, 1], [351, 10, 1], [350, 10, 1]] }
 	};
+
 	function bossType(kind) {
 		var b = BOSS[kind] || BOSS.hans;
-		return {
-			W: b[0], SHOOT: [[b[1], 30, 1]], DIE: [[b[2], 15, 1], [b[2] + 1, 15, 0], [b[2] + 2, 15, 0]],
-			DEAD: b[3], patrol: spd(512), chase: spd(1536), sight: b[4], fire: DIGI.BOSSFIRE,
-			hp: HP.boss, pts: 5000, boss: true, betterShot: true
+		if (b._cfg) return b._cfg;                 // cached: the state graph is shared
+		var die = [];
+		for (var i = 0; i < b.dieN; i++) die.push([b.DIE1 + i, 15, i === 0 ? 1 : 0]);
+		b._cfg = {
+			kind: kind,
+			W: b.W,
+			SHOOT: b.SHOOT || [[b.SHOOT1, 30, 1]],
+			DIE: die,
+			DEAD: b.DEAD,
+			patrol: spd(512), chase: spd(b.chase || 1536),
+			sight: b.sight, fire: DIGI.BOSSFIRE, death: b.death,
+			hp: b.hp, pts: b.pts, boss: true, betterShot: true,
+			dropsKey: b.end === 'key',
+			victory: b.end === 'victory',
+			morphTo: b.end === 'morph' ? b.morphTo : null
 		};
+		return b._cfg;
 	}
 
 	// --- Build a per-type state graph -------------------------------------
@@ -166,7 +217,11 @@
 			if (dprev) dprev.next = ds; else dfirst = ds;
 			dprev = ds;
 		}
-		var dead = st(false, cfg.DEAD, 0, null, null); dead.next = dead;
+		// The floor-ending bosses run A_StartDeathCam on their LAST death frame, not
+		// the moment their hitpoints hit zero — so the death animation plays out first
+		// and the intermission doesn't slide in while the boss is still on his feet.
+		var dead = st(false, cfg.DEAD, cfg.victory ? 20 : 0, null, cfg.victory ? 'victory' : null);
+		dead.next = dead;
 		dprev.next = dead; S.die1 = dfirst; S.dead = dead;
 		return S;
 	}
@@ -245,6 +300,8 @@
 		var S = statesFor(cfg);
 		var a = {
 			cfg: cfg, cls: spawn.type,
+			kind: cfg.kind || spawn.type,     // for save/load of runtime-spawned actors
+			diff: difficulty | 0,             // the morph needs it to pick Adolf's hitpoints
 			x: x, y: y, tilex: x | 0, tiley: y | 0,
 			dir: spawn.rotate ? spawn.dirType : NODIR,
 			distance: 0, speed: cfg.patrol,
@@ -431,6 +488,10 @@
 			case 'shoot': this.tShoot(a); break;
 			case 'bite': this.tBite(a); break;
 			case 'scream': this.deathScream(a); break;
+			case 'victory':
+				// The dead state loops, so guard: the floor may only be won once.
+				if (!a.victoryFired) { a.victoryFired = true; this.env.onVictory && this.env.onVictory(); }
+				break;
 		}
 	};
 
@@ -523,12 +584,12 @@
 
 	WolfAI.prototype.deathScream = function (a) {
 		var d = DIGI, s;
+		if (a.cfg.death != null) { this.playAt(a.cfg.death, a); return; }  // bosses: one each
 		switch (a.cls) {
 			case 'mutant': s = d.AHHG; break;
 			case 'officer': s = d.NEINSOVAS; break;
 			case 'ss': s = d.LEBEN; break;
 			case 'dog': s = d.DOGDEATH; break;
-			case 'boss': s = d.MEINGOTT; break;
 			default: // guard: random death scream
 				var pool = [d.DEATH1, d.DEATH2, 34, 35, 40, 41, 42];
 				s = pool[this.env.rnd() % pool.length]; break;
@@ -538,6 +599,7 @@
 
 	// --- Damage from the player -------------------------------------------
 	WolfAI.prototype.damageActor = function (a, damage) {
+		if (!a.flags.shootable || a.flags.dead) return;   // corpses take no more hits
 		if (!a.flags.attackmode) { damage <<= 1; this.firstSighting(a); }
 		a.hp -= damage;
 		if (a.hp <= 0) { this.killActor(a); return; }
@@ -546,14 +608,56 @@
 	};
 
 	WolfAI.prototype.killActor = function (a) {
-		a.hp = 0;
+		if (a.flags.dead) return;                        // never die twice
+		var dir0 = a.dir;                                // A_HitlerMorph inherits the facing,
+		a.hp = 0;                                        // so grab it before death clears it
 		a.flags.shootable = false;
 		a.flags.dead = true;
 		a.dir = NODIR;
 		this.occ.delete(this._key(a.tilex, a.tiley));
 		a.state = a.S.die1; a.ticcount = a.state.tics || 0;
 		this.env.addScore(a.cfg.pts);
+
+		// Boss endings (see the BOSS table): Hans and Gretel drop the gold key you
+		// need for the elevator; Schabbs, Giftmacher, Fat Face and the real Hitler end
+		// the floor when they go down; Mecha Hitler doesn't end anything — Adolf steps
+		// out of the wreck and the fight continues.
+		if (a.cfg.dropsKey && this.env.dropKey) this.env.dropKey(a.tilex, a.tiley);
+		if (a.cfg.morphTo) this.morph(a, a.cfg.morphTo, dir0);
+		// NOTE: victory is NOT fired here. It hangs off the last death frame (see
+		// buildStates), because A_StartDeathCam does too — otherwise the intermission
+		// appears while the boss is still standing.
+
 		this.env.onKill && this.env.onKill(a);
+	};
+
+	// A_HitlerMorph: replace a dying boss with his successor at the same spot. The new
+	// actor inherits position and facing, is already hunting you, and gets his own
+	// hitpoints and speed (Adolf runs at SPDPATROL*5 — faster than anything else).
+	WolfAI.prototype.morph = function (a, kind, dir) {
+		var cfg = bossType(kind);
+		var S = statesFor(cfg);
+		var n = {
+			cfg: cfg, cls: 'boss', kind: kind, diff: a.diff,
+			x: a.x, y: a.y, tilex: a.tilex, tiley: a.tiley,
+			dir: (dir == null) ? a.dir : dir, distance: 0, speed: cfg.chase,
+			hp: cfg.hp[a.diff] | 0,
+			temp2: 0, ticcount: 0,
+			state: S.chase1,
+			flags: {
+				attackmode: true, ambush: false, shootable: true,
+				visible: false, active: true, hidden: false, dead: false
+			},
+			sprite: cfg.W,
+			S: S,
+			spawned: true                 // not in the map: must be re-created on load
+		};
+		n.ticcount = n.state.tics || 0;
+		this.actors.push(n);
+		this.occ.set(this._key(n.tilex, n.tiley), n);
+		this.playAt(cfg.sight, n);
+		if (this.env.onSpawn) this.env.onSpawn(n);   // the renderer needs to know about him
+		return n;
 	};
 
 	// --- DoActor driver ---------------------------------------------------
@@ -664,7 +768,10 @@
 			out.push({
 				x: +a.x.toFixed(3), y: +a.y.toFixed(3), d: a.dir, hp: a.hp,
 				dd: f.dead ? 1 : 0, am: f.attackmode ? 1 : 0,
-				ac: f.active ? 1 : 0, ab: f.ambush ? 1 : 0
+				ac: f.active ? 1 : 0, ab: f.ambush ? 1 : 0,
+				// Actors that were never in the map (Adolf, after the morph) must be
+				// re-created on load — otherwise the finale becomes unwinnable again.
+				sp: a.spawned ? a.kind : undefined
 			});
 		}
 		return out;
@@ -672,9 +779,15 @@
 
 	WolfAI.prototype.restore = function (list) {
 		if (!list) return;
-		var n = Math.min(list.length, this.actors.length);
-		for (var i = 0; i < n; i++) {
-			var a = this.actors[i], s = list[i], S = a.S;
+		for (var i = 0; i < list.length; i++) {
+			var s = list[i];
+			var a = this.actors[i];
+			if (!a) {
+				if (!s.sp) continue;                       // nothing to rebuild from
+				a = this._rebuildSpawned(s);               // re-create the morphed boss
+				if (!a) continue;
+			}
+			var S = a.S;
 			a.x = s.x; a.y = s.y;
 			a.tilex = a.x | 0; a.tiley = a.y | 0;
 			a.dir = (s.d == null) ? NODIR : s.d;
@@ -697,6 +810,26 @@
 			}                                 // else: keep the freshly spawned stand/patrol state
 		}
 		this._rebuildOcc();
+	};
+
+	// Re-create an actor that only ever existed at runtime (currently: Adolf).
+	WolfAI.prototype._rebuildSpawned = function (s) {
+		var cfg = bossType(s.sp);
+		if (!cfg) return null;
+		var S = statesFor(cfg);
+		var a = {
+			cfg: cfg, cls: 'boss', kind: s.sp, diff: 0,
+			x: s.x, y: s.y, tilex: s.x | 0, tiley: s.y | 0,
+			dir: (s.d == null) ? NODIR : s.d,
+			distance: 0, speed: cfg.chase, hp: s.hp,
+			temp2: 0, ticcount: 0,
+			state: S.chase1,
+			flags: { attackmode: true, ambush: false, shootable: true, visible: false, active: true, hidden: false, dead: false },
+			sprite: cfg.W, S: S, spawned: true
+		};
+		this.actors.push(a);
+		if (this.env.onSpawn) this.env.onSpawn(a);
+		return a;
 	};
 
 	// Occupancy grid must match the restored positions. Living actors are placed

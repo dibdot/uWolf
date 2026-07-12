@@ -40,6 +40,12 @@
 	};
 	// Plane codes for the "use" (Space) mechanic.
 	var PUSHABLE = 98, ELEVATOR = 21;   // PUSHABLETILE / ELEVATORTILE
+	var GOLD_KEY = 43;                  // bo_key1 — what Hans and Gretel drop
+	var EXITTILE = 99;                  // plane1: "at end of castle" — stepping on it wins
+	var ALT_ELEVATOR = 107;             // plane0: stand here and use an elevator -> secret floor
+	// Where the secret floor spits you back out, per episode (ElevatorBackTo[]).
+	var ELEVATOR_BACK_TO = [1, 1, 7, 3, 5, 3];
+	var EPISODE_FLOORS = 10;            // 8 normal + boss (index 8) + secret (index 9)
 	var ARROW_FIRST = 90;               // ICONARROWS: plane1 90..97 = patrol turn arrows
 	var PUSH_SPEED = 70 / 128;          // tiles/sec — matches MovePWalls (128 tics/tile @ 70Hz)
 
@@ -67,6 +73,7 @@
 		this.running = false;
 		this.pushwall = null;      // active secret-wall slide
 		this._levelDone = 0;       // >0 = showing floor-stats screen
+		this._episodeDone = false; // the stats screen is an EPISODE COMPLETE screen
 		this._levelDoneReady = false;
 		this._continueTap = false;
 		this._pendingLevel = 0;
@@ -176,6 +183,7 @@
 		this._levelIndex = index;
 		this.pushwall = null;
 		this._levelDone = 0;
+		this._episodeDone = false;
 		this.gs.keys = 0;      // keys are per-floor
 		this._lockMsg = 0;
 		this.doors.clear();
@@ -205,6 +213,13 @@
 			playerMoving: function () { return self._playerMoving; },
 			sound: self.sound || null,
 			blocked: function (tx, ty) { return self.solidObjects.has(ty * w + tx); },
+			// Hans / Gretel leave a gold key behind (KillActor -> PlaceItemType(bo_key1)).
+			dropKey: function (tx, ty) { self._dropPickup(tx, ty, GOLD_KEY); },
+			// Schabbs / Giftmacher / Fat Face / Adolf end the floor when they die.
+			onVictory: function () { self._completeFloor('victory'); },
+			// Adolf steps out of Mecha Hitler's wreck mid-level: the renderer only got
+			// the actor list once, at startLevel, so a newcomer has to be added here.
+			onSpawn: function (actor) { self.rc.sprites.push(actor); },
 			// Turn-arrow tiles (plane1 90..97 = ICONARROWS) that script patrol routes.
 			// Returns a dirtype 0..7 (east, NE, north, NW, west, SW, south, SE), or -1.
 			arrowAt: function (tx, ty) {
@@ -221,7 +236,7 @@
 		var diff = this.gs.difficulty;
 		this.solidObjects = new Set();
 		this.pickups = new Map();
-		this._stats = { floor: index + 1, enemies: 0, kills: 0, secretsTotal: 0, secretsFound: 0, treasureTotal: 0, treasureFound: 0 };
+		this._stats = { floor: this._floorNumber(index), enemies: 0, kills: 0, secretsTotal: 0, secretsFound: 0, treasureTotal: 0, treasureFound: 0 };
 		for (var y = 0; y < lvl.height; y++) {
 			for (var x = 0; x < lvl.width; x++) {
 				var t0 = lvl.plane0[y * lvl.width + x];
@@ -304,6 +319,10 @@
 	// one-shot vocalisation when the player first comes close. No movement or AI.
 	Game.prototype._updateCombat = function (dt) {
 		if (!this.ai) return;
+		// The intermission is not part of the game world any more: in the original the
+		// play loop has already exited, so nobody keeps shooting at you while you read
+		// the floor stats.
+		if (this._levelDone > 0) return;
 		var p = this.player, gs = this.gs;
 
 		// decay flashes
@@ -404,7 +423,10 @@
 	Game.prototype._playerDied = function () {
 		var gs = this.gs;
 		gs.dead = true; gs.respawn = 1.8; gs.damageFlash = 1;
-		if (this.sound && DIGI) this.sound.play(DIGI.DIE, 0.9);
+		// No sound here on purpose: the player's death cry (PLAYERDEATHSND) is an
+		// Adlib-only effect and is not in wolfdigimap at all. We used to play digi
+		// chunk 18 — but that is DIESND, i.e. Hitler shouting "Die!", which is simply
+		// the wrong sound.
 	};
 
 	// ---- Pickups -----------------------------------------------------------
@@ -528,14 +550,81 @@
 	};
 
 	// --- Elevator (level exit) ---------------------------------------------
+	// The status bar shows the floor WITHIN the episode (mapon+1 => 1..10), like the
+	// original — not the absolute index, which would count up to 60 and make the first
+	// floor of episode 4 read as "31".
+	Game.prototype._floorNumber = function (index) {
+		var i = (index == null) ? this._levelIndex : index;
+		return (i % EPISODE_FLOORS) + 1;
+	};
+
 	Game.prototype._rideElevator = function (cx, cy) {
 		if (this._levelDone) return;
-		this.level.plane0[cy * this.level.width + cx] = ELEVATOR + 1; // flip the switch texture
-		if (this.sound && DIGI) this.sound.play(DIGI.LEVELDONE, 0.9);
+		var lvl = this.level, w = lvl.width;
+		lvl.plane0[cy * w + cx] = ELEVATOR + 1;      // flip the switch texture
+		// Standing on the alternate elevator floor tile takes you to the secret floor
+		// instead of the next one (ex_secretlevel).
+		var under = lvl.plane0[(this.player.y | 0) * w + (this.player.x | 0)];
+		this._completeFloor(under === ALT_ELEVATOR ? 'secret' : 'floor');
+	};
+
+	// Walking onto the exit tile ends the episode. This is how the Hans and Gretel
+	// floors finish (they have no death-cam): kill the boss, take his gold key, unlock
+	// the door and step out of the castle — VictoryTile() spawns the BJ victory run,
+	// which is where his one and only line comes from.
+	Game.prototype._checkExit = function () {
+		if (this._levelDone || !this.level) return;
+		var lvl = this.level;
+		var t1 = lvl.plane1[(this.player.y | 0) * lvl.width + (this.player.x | 0)];
+		if (t1 !== EXITTILE) return;
+		if (this.sound && DIGI) this.sound.play(DIGI.YEAH, 1);   // "Yeah!"
+		this._completeFloor('victory');
+	};
+
+	// Where to go next. Floors are grouped per episode (10 each: 8 normal, then the
+	// boss floor, then the secret floor), and progression is NOT simply +1:
+	//   'floor'   — the elevator: next floor in this episode
+	//   'secret'  — the alternate elevator: jump to the episode's secret floor
+	//   'victory' — the boss is down / you left the castle: the EPISODE is over.
+	//               (Going +1 from the boss floor is what used to drop you into the
+	//               Pac-Man secret level.)
+	// Leaving the secret floor returns you to ElevatorBackTo[episode].
+	Game.prototype._completeFloor = function (mode) {
+		if (this._levelDone) return;
 		var count = this.data.levels.length;
-		this._pendingLevel = (this._levelIndex + 1) % count;   // next floor (wraps)
+		var ep = (this._levelIndex / EPISODE_FLOORS) | 0;
+		var floor = this._levelIndex % EPISODE_FLOORS;
+		var next;
+
+		if (mode === 'victory') {
+			next = ((ep + 1) * EPISODE_FLOORS) % count;          // on to the next episode
+		} else if (mode === 'secret') {
+			next = ep * EPISODE_FLOORS + 9;
+		} else if (floor === 9) {
+			next = ep * EPISODE_FLOORS + ELEVATOR_BACK_TO[ep % ELEVATOR_BACK_TO.length];
+		} else {
+			next = ep * EPISODE_FLOORS + floor + 1;
+		}
+
+		if (this.sound && DIGI) this.sound.play(DIGI.LEVELDONE, 0.9);
+		this._pendingLevel = next % count;
+		this._episodeDone = (mode === 'victory');
 		this._levelDone = 1;             // show the floor-stats screen
 		this._levelDoneReady = false;    // require the "use" key to be released first
+	};
+
+	// Place a collectable item on a tile while the level is running (the original's
+	// PlaceItemType). Used for the gold key Hans and Gretel leave behind.
+	Game.prototype._dropPickup = function (tx, ty, code) {
+		if (!this.level || !PICKUP[code]) return null;
+		var idx = ty * this.level.width + tx;
+		if (this.pickups.has(idx)) return null;              // something is already lying there
+		var spr = { x: tx + 0.5, y: ty + 0.5, sprite: SPR_STAT_0 + (code - STAT_FIRST) };
+		this.staticSprites.push(spr);
+		this.rc.sprites.push(spr);
+		this.pickups.set(idx, { code: code, spr: spr });
+		if (PICKUP[code].treasure) this._stats.treasureTotal++;
+		return spr;
 	};
 
 	// --- Pushwall (secret chamber) -----------------------------------------
@@ -721,6 +810,7 @@
 			this._playerMoving = true;
 		}
 		this._checkPickup();
+		this._checkExit();
 		if (this._lockMsg > 0) this._lockMsg -= dt;
 
 		this._updateDoors(dt);
@@ -803,7 +893,7 @@
 			ctx.fillText('GAME OVER', cx, H * 0.42);
 			ctx.fillStyle = '#d8d8d8';
 			ctx.font = 'bold ' + Math.max(10, H * 0.035) + 'px monospace';
-			ctx.fillText('SCORE ' + gs.score + '  ·  FLOOR ' + (this._levelIndex + 1), cx, H * 0.56);
+			ctx.fillText('SCORE ' + gs.score + '  ·  FLOOR ' + this._floorNumber(), cx, H * 0.56);
 			ctx.fillStyle = '#8a8a8a';
 			ctx.font = Math.max(9, H * 0.028) + 'px monospace';
 			ctx.fillText('press space / tap to continue', cx, H * 0.66);
@@ -828,7 +918,7 @@
 		}
 
 		if (!gs.dead && this._levelDone > 0) {
-			var st = this._stats || { floor: this._levelIndex + 1, enemies: 0, kills: 0, secretsTotal: 0, secretsFound: 0, treasureTotal: 0, treasureFound: 0 };
+			var st = this._stats || { floor: this._floorNumber(), enemies: 0, kills: 0, secretsTotal: 0, secretsFound: 0, treasureTotal: 0, treasureFound: 0 };
 			var pct = function (a, b) { return b > 0 ? Math.round(a * 100 / b) : 100; };
 			ctx.save();
 			ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, W, H);   // solid intermission screen
@@ -837,7 +927,12 @@
 
 			ctx.textAlign = 'center';
 			ctx.fillStyle = '#ffd24a'; ctx.font = 'bold ' + Math.max(16, H * 0.075) + 'px monospace';
-			ctx.fillText('FLOOR ' + st.floor + ' COMPLETE', W / 2, cyC - H * 0.24);
+			if (this._episodeDone) {
+				var ep = ((this._levelIndex / 10) | 0) + 1;
+				ctx.fillText('EPISODE ' + ep + ' COMPLETE', W / 2, cyC - H * 0.24);
+			} else {
+				ctx.fillText('FLOOR ' + st.floor + ' COMPLETE', W / 2, cyC - H * 0.24);
+			}
 
 			// The stats are laid out in fixed character columns and drawn LEFT-aligned
 			// from a common origin. Centring each row as one string (which is what this
@@ -904,7 +999,7 @@
 			}
 		}
 
-		num(2, 16, 2, this._levelIndex + 1);                     // floor
+		num(2, 16, 2, this._floorNumber());                      // floor (within the episode)
 		num(6, 16, 6, gs.score);                                 // score
 		num(14, 16, 1, gs.lives);                                // lives
 		num(21, 16, 3, gs.health);                               // health
@@ -1040,6 +1135,13 @@
 			if (PICKUP[lvl.plane1[idx]] && !this.pickups.has(idx)) taken.push(idx);
 		}
 
+		// Items dropped during play (the gold key from Hans / Gretel) are not in the
+		// map at all, so they have to be listed explicitly or they'd vanish on load.
+		var dropped = [];
+		this.pickups.forEach(function (pk, i) {
+			if (!PICKUP[lvl.plane1[i]]) dropped.push([i, pk.code]);
+		});
+
 		return {
 			v: SAVE_VERSION,
 			ts: Date.now(),
@@ -1054,6 +1156,7 @@
 			map: map,
 			doors: doors,
 			taken: taken,
+			dropped: dropped,
 			actors: this.ai ? this.ai.serialize() : [],
 			pushwall: this.pushwall ? {
 				ax: this.pushwall.ax, ay: this.pushwall.ay, dx: this.pushwall.dx, dy: this.pushwall.dy,
@@ -1092,6 +1195,11 @@
 		});
 
 		// remove collected pickups
+		// items dropped during play (the boss's gold key) are re-placed first
+		(st.dropped || []).forEach(function (d) {
+			self._dropPickup(d[0] % self.level.width, (d[0] / self.level.width) | 0, d[1]);
+		});
+
 		(st.taken || []).forEach(function (idx) {
 			var pk = self.pickups.get(idx);
 			if (pk) { pk.spr.sprite = -1; self.pickups.delete(idx); }
@@ -1109,6 +1217,7 @@
 		this.pushwall = st.pushwall || null;
 		if (st.stats) this._stats = st.stats;
 		this._levelDone = 0;
+		this._episodeDone = false;
 		return true;
 	};
 

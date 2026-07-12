@@ -1,10 +1,13 @@
-# uWolf — a raycasting engine for OpenWrt / uhttpd
+# uWolf — a browser raycaster, served by OpenWrt / uhttpd
 
 A small, dependency-free JavaScript raycaster that reads the **original
-Wolfenstein 3D data formats** and renders them in the browser. It is meant to
-be served as static files by OpenWrt's `uhttpd`. The router only hands out
-files — all rendering runs client-side on your phone or PC, so a BPI-R3 is
-massive overkill as a file server here.
+Wolfenstein 3D data formats** and renders them in the browser.
+
+To be clear about the division of labour, because the name invites the wrong
+idea: **the router does not run the game.** It serves a handful of static files
+over `uhttpd` — the JavaScript, and the data files you supply. Every ray is cast
+client-side, in the browser on your phone or PC. A BPI-R3 is comical overkill for
+the job it actually does here, which is being a file server.
 
 **No game content is shipped.** You supply the data files from a copy you own.
 The engine only *interprets* them.

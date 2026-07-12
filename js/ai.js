@@ -563,7 +563,9 @@
 			// dormant until it can see the player or hears gunfire
 			if (this.checkLine(a.x, a.y, env.player.x, env.player.y) || this.hearsNoise(a)) a.flags.active = true;
 		}
-		if (!a.flags.dead) this.occ.delete(this._key(a.tilex, a.tiley));
+		// Vacate our own mark before thinking (we may step to another tile).
+		var oldKey = this._key(a.tilex, a.tiley);
+		if (this.occ.get(oldKey) === a) this.occ.delete(oldKey);
 
 		if (a.ticcount === 0) {
 			if (a.state.think) this.think(a, a.state.think);
@@ -583,7 +585,16 @@
 		if (a.state.rot) a.sprite = a.state.spr + E.rotFrame(this._facing(a), a.x, a.y, env.player.x, env.player.y);
 		else a.sprite = a.state.spr;
 
-		if (!a.flags.dead && a.flags.shootable) this.occ.set(this._key(a.tilex, a.tiley), a);
+		// Re-mark the tile. A corpse claims it too (the original sets FL_NONMARK on
+		// death and DoActor re-marks it whenever the tile is free) — it never blocks
+		// walking, because every walk test filters on `shootable`, but it does keep a
+		// door from closing on it.
+		var k = this._key(a.tilex, a.tiley);
+		if (a.flags.dead) {
+			if (!this.occ.has(k)) this.occ.set(k, a);      // never overwrite a living actor
+		} else if (a.flags.shootable) {
+			this.occ.set(k, a);
+		}
 	};
 
 	// Facing dirtype for rendering: use movement dir, or spawn facing when idle.
@@ -688,13 +699,21 @@
 		this._rebuildOcc();
 	};
 
-	// Occupancy grid must match the restored positions.
+	// Occupancy grid must match the restored positions. Living actors are placed
+	// first; a corpse then claims its tile only if nothing living is standing there
+	// (FL_NONMARK), which is what lets a body hold a door open after a load.
 	WolfAI.prototype._rebuildOcc = function () {
 		this.occ.clear();
-		for (var i = 0; i < this.actors.length; i++) {
-			var a = this.actors[i];
-			if (a.flags.dead || !a.flags.shootable) continue;
-			this.occ.set(this._key(a.tilex, a.tiley), a);
+		var i, a;
+		for (i = 0; i < this.actors.length; i++) {
+			a = this.actors[i];
+			if (!a.flags.dead && a.flags.shootable) this.occ.set(this._key(a.tilex, a.tiley), a);
+		}
+		for (i = 0; i < this.actors.length; i++) {
+			a = this.actors[i];
+			if (!a.flags.dead) continue;
+			var k = this._key(a.tilex, a.tiley);
+			if (!this.occ.has(k)) this.occ.set(k, a);
 		}
 	};
 

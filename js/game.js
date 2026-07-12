@@ -52,7 +52,13 @@
 		this.player = { x: 0, y: 0, angle: 0, dirX: 1, dirY: 0, planeX: 0, planeY: 0.66 };
 		this.doors = new Map();
 		this.keys = {};
-		this.touch = { move: { active: false, dx: 0, dy: 0 }, look: { active: false, dx: 0 }, id: { move: null, look: null }, fire: false };
+		// Touch input is the on-screen D-pad + FIRE button ("Mobile controls").
+		// There is no swipe-to-turn: turning lives on the pad, which is far less
+		// tiring than dragging the screen around.
+		this.touch = {
+			fire: false,
+			pad: { fwd: false, back: false, left: false, right: false }
+		};
 		this.moveSpeed = 3.2;   // cells / second
 		this.turnSpeed = 1.7;   // radians / second (lower = finer aiming)
 		this.doorOpenTime = 0.5;
@@ -288,58 +294,8 @@
 		});
 		window.addEventListener('keyup', function (e) { self.keys[e.code] = false; });
 		window.addEventListener('resize', function () { if (self.rc) self._resize(); });
-		// Tap / click continues the floor-stats screen.
+		// Tap / click continues the floor-stats and game-over screens.
 		this.canvas.addEventListener('pointerdown', function () { if (self._levelDone > 0) self._continueTap = true; });
-
-		// Touch: left half = move stick, right half = look drag.
-		var c = this.canvas;
-		c.addEventListener('touchstart', function (e) { self._touchStart(e); }, { passive: false });
-		c.addEventListener('touchmove', function (e) { self._touchMove(e); }, { passive: false });
-		c.addEventListener('touchend', function (e) { self._touchEnd(e); }, { passive: false });
-		c.addEventListener('touchcancel', function (e) { self._touchEnd(e); }, { passive: false });
-	};
-
-	Game.prototype._touchStart = function (e) {
-		e.preventDefault();
-		if (this.sound) this.sound.resume();
-		for (var i = 0; i < e.changedTouches.length; i++) {
-			var t = e.changedTouches[i];
-			if (t.clientX < window.innerWidth / 2 && this.touch.id.move === null) {
-				this.touch.id.move = t.identifier;
-				this.touch.move.ox = t.clientX; this.touch.move.oy = t.clientY;
-				this.touch.move.active = true; this.touch.move.dx = 0; this.touch.move.dy = 0;
-			} else if (this.touch.id.look === null) {
-				this.touch.id.look = t.identifier;
-				this.touch.look.ox = t.clientX; this.touch.look.active = true; this.touch.look.dx = 0;
-			}
-		}
-	};
-
-	Game.prototype._touchMove = function (e) {
-		e.preventDefault();
-		for (var i = 0; i < e.changedTouches.length; i++) {
-			var t = e.changedTouches[i];
-			if (t.identifier === this.touch.id.move) {
-				this.touch.move.dx = (t.clientX - this.touch.move.ox) / 60;
-				this.touch.move.dy = (t.clientY - this.touch.move.oy) / 60;
-			} else if (t.identifier === this.touch.id.look) {
-				this.touch.look.dx = (t.clientX - this.touch.look.ox) / 90;
-				this.touch.look.ox = t.clientX; // relative look
-			}
-		}
-	};
-
-	Game.prototype._touchEnd = function (e) {
-		for (var i = 0; i < e.changedTouches.length; i++) {
-			var id = e.changedTouches[i].identifier;
-			if (id === this.touch.id.move) {
-				// A quick tap in the left half acts as "use".
-				if (Math.abs(this.touch.move.dx) < 0.15 && Math.abs(this.touch.move.dy) < 0.15) this._use();
-				this.touch.id.move = null; this.touch.move.active = false; this.touch.move.dx = 0; this.touch.move.dy = 0;
-			} else if (id === this.touch.id.look) {
-				this.touch.id.look = null; this.touch.look.active = false; this.touch.look.dx = 0;
-			}
-		}
 	};
 
 	// ---- Enemies (render-only) --------------------------------------------
@@ -635,7 +591,13 @@
 				if (d.open >= 1) { d.open = 1; d.state = 'open'; d.timer = self.doorStayTime; }
 			} else if (d.state === 'open') {
 				d.timer -= dt;
-				if (d.timer <= 0 && !(cx === pcx && cy === pcy)) {
+				// A door never closes on anything standing in it — the player, a live
+				// actor, or a corpse. In the original, CloseDoor() simply bails out if
+				// actorat[] holds anything, and a body keeps re-marking its tile, so a
+				// soldier shot in a doorway props it open for good.
+				var blocked = (cx === pcx && cy === pcy) ||
+					!!(self.ai && self.ai.occAt(cx, cy));
+				if (d.timer <= 0 && !blocked) {
 					d.state = 'closing';
 					self._sfxAt(cx, cy, DIGI.CLOSEDOOR, 0.85);
 				}
@@ -739,8 +701,13 @@
 			if (k['ArrowLeft']) turn -= 1;
 			if (k['ArrowRight']) turn += 1;
 
-			if (this.touch.move.active) { forward -= clamp(this.touch.move.dy, -1, 1); strafe += clamp(this.touch.move.dx, -1, 1); }
-			if (this.touch.look.active) { turn += clamp(this.touch.look.dx * 4, -2.2, 2.2); this.touch.look.dx = 0; }
+			// On-screen D-pad: laid out like the original's arrow keys — up/down walk,
+			// left/right turn.
+			var pad = this.touch.pad;
+			if (pad.fwd) forward += 1;
+			if (pad.back) forward -= 1;
+			if (pad.left) turn -= 1;
+			if (pad.right) turn += 1;
 		}
 
 		if (turn) this.setAngle(p.angle + turn * this.turnSpeed * dt);
@@ -1030,7 +997,6 @@
 		ctx.lineTo(size / 2 + p.dirX * cell * 1.6, size / 2 + p.dirY * cell * 1.6); ctx.stroke();
 	};
 
-	function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 	// Fixed-width padding for the monospace stats columns.
 	function padL(s, n) { s = String(s); while (s.length < n) s = ' ' + s; return s; }

@@ -83,6 +83,109 @@
 	loadFromServer();   // auto-load from the webroot on open
 
 	// --- Start / HUD ---
+	// --- Mobile controls (the on-screen FIRE button) ---
+	// Off on desktop, where it just covers the view; on by default if the browser
+	// reports a touch device. The choice is remembered across reloads.
+	var MOBILE_KEY = 'uwolf.mobileControls';
+
+	function touchDevice() {
+		return (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window;
+	}
+
+	function applyMobileControls(on) {
+		$('btnFire').classList.toggle('hidden', !on);
+		$('dpad').classList.toggle('hidden', !on);
+		if (!on) {                                 // never leave a button stuck down
+			game.touch.fire = false;
+			var pad = game.touch.pad;
+			pad.fwd = pad.back = pad.left = pad.right = false;
+		}
+		try { window.localStorage.setItem(MOBILE_KEY, on ? '1' : '0'); } catch (e) { /* ignore */ }
+	}
+
+	(function initMobileControls() {
+		var stored = null;
+		try { stored = window.localStorage.getItem(MOBILE_KEY); } catch (e) { /* ignore */ }
+		var on = (stored === null) ? touchDevice() : (stored === '1');
+		$('mobileChk').checked = on;
+		applyMobileControls(on);
+		$('mobileChk').addEventListener('change', function () {
+			applyMobileControls($('mobileChk').checked);
+		});
+
+		// Hold to fire; works for touch and mouse alike via pointer events.
+		var fb = $('btnFire');
+		function down(e) {
+			e.preventDefault();
+			game.touch.fire = true;
+			if (game.sound) game.sound.resume();
+			if (fb.setPointerCapture && e.pointerId != null) fb.setPointerCapture(e.pointerId);
+		}
+		function up(e) { if (e) e.preventDefault(); game.touch.fire = false; }
+		fb.addEventListener('pointerdown', down);
+		fb.addEventListener('pointerup', up);
+		fb.addEventListener('pointercancel', up);
+		window.addEventListener('blur', function () { up(); });   // don't fire forever if focus is lost
+
+		// D-pad. Handled as ONE capture surface rather than five independent buttons:
+		// the pointer is captured on the pad and we hit-test which segment it is over,
+		// so the thumb can slide from "forward" to "turn left" without lifting — the
+		// thing that makes a real D-pad feel like a D-pad. The centre is "use" (doors,
+		// secret walls, elevator), which is where the old tap-to-open used to live.
+		var dpad = $('dpad');
+		var padBtns = Array.prototype.slice.call(dpad.querySelectorAll('.dpad-btn'));
+		var activeKey = null;
+
+		function keyAt(x, y) {
+			for (var i = 0; i < padBtns.length; i++) {
+				var r = padBtns[i].getBoundingClientRect();
+				if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+					return padBtns[i].getAttribute('data-pad');
+				}
+			}
+			return null;
+		}
+
+		function padClear() {
+			var pad = game.touch.pad;
+			pad.fwd = pad.back = pad.left = pad.right = false;
+			padBtns.forEach(function (b) { b.classList.remove('held'); });
+			activeKey = null;
+		}
+
+		function padSet(key) {
+			if (key === activeKey) return;            // nothing changed
+			padClear();
+			if (!key) return;
+			activeKey = key;
+			if (key === 'use') { game._use(); return; }   // fires once, on entering the centre
+			game.touch.pad[key] = true;
+			padBtns.forEach(function (b) {
+				if (b.getAttribute('data-pad') === key) b.classList.add('held');
+			});
+		}
+
+		var padDown = false;
+		dpad.addEventListener('pointerdown', function (e) {
+			e.preventDefault();
+			padDown = true;
+			if (game.sound) game.sound.resume();
+			if (dpad.setPointerCapture && e.pointerId != null) dpad.setPointerCapture(e.pointerId);
+			padSet(keyAt(e.clientX, e.clientY));
+		});
+		dpad.addEventListener('pointermove', function (e) {
+			if (!padDown) return;                      // ignore mouse hover
+			e.preventDefault();
+			padSet(keyAt(e.clientX, e.clientY));       // slide between directions
+		});
+		function padRelease(e) { if (e) e.preventDefault(); padDown = false; padClear(); }
+		dpad.addEventListener('pointerup', padRelease);
+		dpad.addEventListener('pointercancel', padRelease);
+
+		// A lost window must not leave the player walking into a wall forever.
+		window.addEventListener('blur', function () { padDown = false; padClear(); });
+	})();
+
 	$('btnStart').addEventListener('click', function () {
 		var idx = parseInt($('levelSel').value, 10);
 		try {

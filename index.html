@@ -21,6 +21,14 @@
 		<button id="btnWpn" class="hud-btn" aria-label="Switch weapon">WPN</button>
 		<button id="btnSave" class="hud-btn" aria-label="Save game">SAVE</button>
 		<button id="btnMenu" class="hud-btn" aria-label="Back to menu">MENU</button>
+		<button id="btnFire" class="fire-btn hidden" aria-label="Fire">FIRE</button>
+		<div id="dpad" class="dpad hidden">
+			<button class="dpad-btn dpad-up" data-pad="fwd" aria-label="Forward">▲</button>
+			<button class="dpad-btn dpad-left" data-pad="left" aria-label="Turn left">◀</button>
+			<button class="dpad-btn dpad-mid" data-pad="use" aria-label="Open / use">◎</button>
+			<button class="dpad-btn dpad-right" data-pad="right" aria-label="Turn right">▶</button>
+			<button class="dpad-btn dpad-down" data-pad="back" aria-label="Backward">▼</button>
+		</div>
 	</div>
 
 	<div id="menu">
@@ -71,6 +79,7 @@
 					<label class="chk"><input type="checkbox" id="godChk"> God mode</label>
 					<label class="chk"><input type="checkbox" id="ammoChk"> Infinite ammo</label>
 					<label class="chk"><input type="checkbox" id="allWpnChk"> All weapons</label>
+					<label class="chk"><input type="checkbox" id="mobileChk"> Mobile controls</label>
 				</div>
 
 				<button id="btnStart">Enter</button>
@@ -84,7 +93,7 @@
 					<strong>Use</strong> (doors / secret walls / elevator): Space or E. <strong>Map:</strong> M.
 					<strong>Save:</strong> F8, <strong>load:</strong> F9. <strong>Pause/menu:</strong> Esc.
 				</p>
-				<p><strong>Touch:</strong> left half = move stick, right half = drag to turn, WPN cycles weapons.</p>
+				<p><strong>Touch:</strong> enable <strong>Mobile controls</strong> for an on-screen D-pad (up/down walk, left/right turn, centre opens doors) and a FIRE button.</p>
 			</details>
 		</div>
 	</div>

@@ -398,3 +398,91 @@ code {
 .resume-btn:hover {
 	background: #362d16;
 }
+
+/* On-screen fire button — only shown when "Mobile controls" is enabled. */
+.fire-btn {
+	pointer-events: auto;
+	position: fixed;
+	right: 18px;
+	bottom: 22%;
+	width: 92px;
+	height: 92px;
+	border-radius: 50%;
+	background: rgba(150, 30, 20, 0.5);
+	color: #ffd7d0;
+	border: 2px solid rgba(230, 90, 70, 0.7);
+	font: inherit;
+	font-weight: bold;
+	font-size: 15px;
+	letter-spacing: 0.1em;
+	backdrop-filter: blur(2px);
+	touch-action: none;          /* don't let the browser pan/zoom on this */
+	user-select: none;
+	z-index: 6;
+}
+
+.fire-btn:active {
+	background: rgba(210, 60, 40, 0.75);
+	color: #fff;
+}
+
+.fire-btn.hidden {
+	display: none;
+}
+
+/* On-screen D-pad — shown with "Mobile controls". Up/down walk, left/right turn
+   (like the original's arrow keys), centre opens doors / pushes secret walls. */
+.dpad {
+	pointer-events: auto;
+	position: fixed;
+	left: 18px;
+	bottom: 22%;
+	display: grid;
+	grid-template-columns: repeat(3, 52px);
+	grid-template-rows: repeat(3, 52px);
+	gap: 4px;
+	touch-action: none;
+	user-select: none;
+	z-index: 6;
+}
+
+.dpad.hidden {
+	display: none;
+}
+
+.dpad-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+	color: var(--ink);
+	background: rgba(20, 20, 15, 0.55);
+	border: 1px solid var(--edge);
+	border-radius: 6px;
+	backdrop-filter: blur(2px);
+	touch-action: none;
+}
+
+/* .held is set by the pointer hit-test, not :active — the pointer is captured on
+   the pad, so :active would stay stuck on whichever button was pressed first. */
+.dpad-btn.held {
+	border-color: var(--accent);
+	color: var(--accent-lit);
+	background: rgba(60, 50, 20, 0.6);
+}
+
+.dpad-up { grid-area: 1 / 2; }
+.dpad-left { grid-area: 2 / 1; }
+.dpad-mid { grid-area: 2 / 2; font-size: 15px; }
+.dpad-right { grid-area: 2 / 3; }
+.dpad-down { grid-area: 3 / 2; }
+
+@media (max-width: 560px) {
+	.dpad {
+		grid-template-columns: repeat(3, 46px);
+		grid-template-rows: repeat(3, 46px);
+	}
+}

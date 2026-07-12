@@ -108,7 +108,19 @@ the menu (a **Resume game** button there picks the run straight back up).
 Touch: the left half of the screen is a move stick, the right half drags to
 turn, and a quick tap on the left half acts as *use* (doors, pushwalls,
 elevator). **WPN** cycles weapons, **MAP** toggles the minimap and **SAVE**
-quick-saves. Firing is currently keyboard-only (**Ctrl**).
+quick-saves.
+
+Tick **Mobile controls** on the menu for on-screen controls: a **D-pad** bottom
+left and a **FIRE** button bottom right (hold it down for the automatic weapons).
+The pad is laid out like the original's arrow keys — up/down walk, left/right
+*turn* — so you never have to swipe the screen to look around; its centre button
+is *use* (doors, secret walls, elevator). The pad is one capture surface, so your
+thumb can slide from "forward" straight into "turn left" without lifting.
+
+Mobile controls are off on desktop, where they would only cover the view, and on
+by default if the browser reports a touch device; either way the choice is
+remembered. There is no swipe-to-turn: turning lives on the pad, which is far
+less tiring than dragging the screen around.
 
 On the menu, before entering a level, you can set the difficulty and toggle
 **God mode**, **Infinite ammo**, and **All weapons**.
@@ -157,7 +169,10 @@ timings), sighting and per-class reaction times, `SelectChaseDir`/`TryWalk`/
 `MoveObj` grid movement, the `T_Shoot` hit-probability and damage formulas,
 `DamageActor`/`KillActor` (including the double-damage surprise bonus and
 per-difficulty hitpoints), and the player `GunAttack`/`KnifeAttack` damage
-tables and baby-mode damage discount. Patrolling guards follow the map's
+tables and baby-mode damage discount. A body left lying in a doorway props that
+door open — dying sets `FL_NONMARK`, so the corpse keeps re-marking its tile and
+`CloseDoor()` refuses to close on it, while the walk tests ignore it because it is
+no longer shootable. Patrolling guards follow the map's
 scripted routes: the invisible turn-arrow tiles (`ICONARROWS`, plane-1 codes
 90–97) steer them exactly as `SelectPathDir` does, so they walk the loops the
 level designers laid out — opening doors along the way — instead of wandering.

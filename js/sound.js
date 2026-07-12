@@ -20,7 +20,11 @@
 		SLURPIE: 22, TOTHUND: 23, MEINGOTT: 24, SCHABBSHA: 25, HITLERHA: 26,
 		SPION: 27, NEINSOVAS: 28, DOGATTACK: 29, LEVELDONE: 30, MECHSTEP: 31, YEAH: 32,
 		// Boss-specific taunts and death cries (wolfdigimap, WL6)
-		SCHEIST: 33, DONNER: 36, EINE: 37, ERLAUBEN: 38, KEIN: 43, MEIN: 44, ROSE: 45
+		SCHEIST: 33, DONNER: 36, EINE: 37, ERLAUBEN: 38, KEIN: 43, MEIN: 44, ROSE: 45,
+		// The guard's death screams. The source names them, and they are exactly as
+		// dignified as you'd expect: 34 AIIEEE, 35 DEE-DEE, 39 FART, 40 GASP,
+		// 41 GUH-BOY!, 42 AH GEEZ!
+		DEATH3: 13, DEATH4: 34, DEATH5: 35, FART: 39, DEATH7: 40, DEATH8: 41, DEATH9: 42
 	};
 
 	function SoundManager(gameData, rate) {

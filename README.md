@@ -208,6 +208,15 @@ Deliberately simplified (and easy to extend later):
   The kill itself doesn't end the floor either — the ending hangs off the *last*
   death frame, exactly as `A_StartDeathCam` does, so the boss finishes going down
   before the intermission appears.
+- **Death cries are per class**: the guard picks from eight screams (`US_RndT()%8`
+  — and chunk 13 is in that pool twice, so it really is twice as likely), the
+  officer goes out on *"Nein, so was!"*, the SS on *"Mein Leben!"*, the mutant on
+  *"Ahhhg"*, and each boss has one of his own. The mutant is also the only enemy
+  that spots you in complete silence.
+- **The secret-floor easter egg is in.** On the secret floor only, every regular
+  enemy has a 1-in-256 chance of dying on `DEATHSCREAM6` instead of his usual cry.
+  The source's own name for that sound is, and we quote, `FART`. Bosses are
+  excluded.
 - **Floor progression is per episode**, not a flat +1: ten floors each (eight
   normal, the boss floor, then the secret floor). The elevator takes you to the
   next floor; standing on the *alternate* elevator tile takes you to the secret

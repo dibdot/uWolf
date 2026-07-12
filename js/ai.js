@@ -582,17 +582,33 @@
 		}
 	};
 
+	// The guard's pool, exactly as the source declares it: DEATHSCREAM1..5,7..9,
+	// picked with US_RndT()%8. Note that DEATHSCREAM2 and 3 both map to chunk 13,
+	// so that one really is twice as likely — the duplicate is not a typo.
+	var GUARD_SCREAMS = [DIGI.DEATH1, DIGI.DEATH2, DIGI.DEATH3, DIGI.DEATH4,
+		DIGI.DEATH5, DIGI.DEATH7, DIGI.DEATH8, DIGI.DEATH9];
+
 	WolfAI.prototype.deathScream = function (a) {
-		var d = DIGI, s;
+		var d = DIGI;
+
+		// Easter egg, straight from A_DeathScream: on the SECRET floor (mapon == 9)
+		// every regular enemy has a 1-in-256 chance (!US_RndT()) of going out on
+		// DEATHSCREAM6 instead of his usual cry. The source labels that sound, with no
+		// further comment, "FART". Bosses are excluded — they keep their dignity.
+		if (!a.cfg.boss && this.env.isSecretFloor && this.env.isSecretFloor() &&
+			this.env.rnd() === 0) {
+			this.playAt(d.FART, a);
+			return;
+		}
+
 		if (a.cfg.death != null) { this.playAt(a.cfg.death, a); return; }  // bosses: one each
+		var s;
 		switch (a.cls) {
 			case 'mutant': s = d.AHHG; break;
 			case 'officer': s = d.NEINSOVAS; break;
 			case 'ss': s = d.LEBEN; break;
 			case 'dog': s = d.DOGDEATH; break;
-			default: // guard: random death scream
-				var pool = [d.DEATH1, d.DEATH2, 34, 35, 40, 41, 42];
-				s = pool[this.env.rnd() % pool.length]; break;
+			default: s = GUARD_SCREAMS[this.env.rnd() % 8]; break;
 		}
 		this.playAt(s, a);
 	};

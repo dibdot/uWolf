@@ -220,6 +220,9 @@
 			// Adolf steps out of Mecha Hitler's wreck mid-level: the renderer only got
 			// the actor list once, at startLevel, so a newcomer has to be added here.
 			onSpawn: function (actor) { self.rc.sprites.push(actor); },
+			// mapon == 9: the episode's secret floor. A_DeathScream has a 1-in-256
+			// surprise reserved for exactly that floor.
+			isSecretFloor: function () { return (self._levelIndex % EPISODE_FLOORS) === 9; },
 			// Turn-arrow tiles (plane1 90..97 = ICONARROWS) that script patrol routes.
 			// Returns a dirtype 0..7 (east, NE, north, NW, west, SW, south, SE), or -1.
 			arrowAt: function (tx, ty) {

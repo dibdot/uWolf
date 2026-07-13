@@ -41,13 +41,29 @@
 				<span class="n">1</span>
 				<div>
 					<strong>Point it at your data</strong>
-					<p>Put three files from your registered Wolfenstein 3D (v1.4) copy into
-						this page's folder (your web server's Wolfenstein root):
-						<code>VSWAP.WL6</code>, <code>MAPHEAD.WL6</code>, <code>GAMEMAPS.WL6</code>.
-					</p>
-					<p>Optional, for the original status bar &amp; BJ face: also add <code>VGAGRAPH.WL6</code>,
-						<code>VGAHEAD.WL6</code>, <code>VGADICT.WL6</code>.
-					</p>
+					<p>Copy these from your registered Wolfenstein 3D (v1.4) into this page's
+						folder — your web server's Wolfenstein root.</p>
+
+					<div class="files">
+						<div class="files-row">
+							<span class="files-what">Required</span>
+							<span class="files-list">
+								<code>VSWAP.WL6</code><code>MAPHEAD.WL6</code><code>GAMEMAPS.WL6</code>
+							</span>
+						</div>
+						<div class="files-row">
+							<span class="files-what">Status bar &amp; BJ face <em>(optional)</em></span>
+							<span class="files-list">
+								<code>VGAGRAPH.WL6</code><code>VGAHEAD.WL6</code><code>VGADICT.WL6</code>
+							</span>
+						</div>
+						<div class="files-row">
+							<span class="files-what">AdLib music &amp; sound effects <em>(optional)</em></span>
+							<span class="files-list">
+								<code>AUDIOHED.WL6</code><code>AUDIOT.WL6</code>
+							</span>
+						</div>
+					</div>
 				</div>
 			</div>
 
@@ -80,6 +96,7 @@
 					<label class="chk"><input type="checkbox" id="ammoChk"> Infinite ammo</label>
 					<label class="chk"><input type="checkbox" id="allWpnChk"> All weapons</label>
 					<label class="chk"><input type="checkbox" id="mobileChk"> Mobile controls</label>
+					<label class="chk"><input type="checkbox" id="musicChk"> Music</label>
 				</div>
 
 				<button id="btnStart">Enter</button>
@@ -104,6 +121,8 @@
 	<script src="js/raycaster.js"></script>
 	<script src="js/enemies.js"></script>
 	<script src="js/sound.js"></script>
+<script src="js/opl2.js"></script>
+<script src="js/music.js"></script>
 	<script src="js/ai.js"></script>
 	<script src="js/game.js"></script>
 	<script src="js/main.js"></script>

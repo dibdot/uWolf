@@ -486,3 +486,58 @@ code {
 		grid-template-rows: repeat(3, 46px);
 	}
 }
+
+/* --- The three groups of data files --- */
+.files {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.files-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 10px;
+	padding: 7px 9px;
+	background: #16160f;
+	border: 1px solid var(--edge);
+	border-left: 3px solid var(--accent);
+	border-radius: 3px;
+}
+
+.files-row:not(:first-child) {
+	border-left-color: var(--edge);
+}
+
+.files-what {
+	flex: 0 0 auto;
+	min-width: 190px;
+	font-size: 12px;
+	letter-spacing: 0.04em;
+	color: var(--ink);
+}
+
+.files-what em {
+	font-style: normal;
+	opacity: 0.55;
+}
+
+.files-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.files-list code {
+	padding: 2px 6px;
+	background: #24241a;
+	border-radius: 2px;
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+	.files-what { min-width: 100%; }
+}

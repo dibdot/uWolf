@@ -35,6 +35,17 @@ built-in HUD is used):
 - `VGAHEAD.WL6` — chunk offsets into `VGAGRAPH`
 - `VGADICT.WL6` — Huffman dictionary for `VGAGRAPH`
 
+Optional (only for the music):
+
+- `AUDIOHED.WL6` — chunk offsets into `AUDIOT`
+- `AUDIOT.WL6` — the AdLib instruments, the sound effects and the 27 music tracks
+
+With those two files you also get the **AdLib sound effects** — the pickup, key,
+locked-door and player-death sounds. Those were never digitised (they are not in
+`VSWAP` at all), so without an OPL2 there was nothing to play but a synthesised
+stand-in. They are independent of the **Music** toggle, exactly as the original keeps
+its music and sound settings apart.
+
 The chunk/sprite numbering is the WL6 layout; other releases (shareware `.WL1`,
 Spear of Destiny `.SOD`, …) are not supported.
 
@@ -53,6 +64,12 @@ Spear of Destiny `.SOD`, …) are not supported.
   probability and damage, dog melee, pain/death animations, and scoring
 - **Player weapons** (knife, pistol, machine gun, chain gun) with ammo,
   hitscan targeting under the crosshair, health, damage flash, and scoring
+- **God mode is faithful, including what it does *not* do**: it takes no health, so
+  you cannot die and the BJ face — which is picked purely from health — keeps
+  grinning. But the hit still registers: `TakeDamage()` skips only the health
+  subtraction and still calls `StartDamageFlash()`, so the screen flashes red and you
+  can see you are being shot at. (Spear of Destiny has a dedicated god-mode face;
+  WL6 has none, so there is nothing to show.)
 - **Lives, respawn and game over**, exactly as the original does it: dying
   decrements your lives and restarts the floor, and a respawn costs you the good
   weapons and your spare ammo (back to the pistol and 8 rounds) while the score
@@ -86,6 +103,10 @@ Spear of Destiny `.SOD`, …) are not supported.
 - **Digitized sound effects from your `VSWAP`** (weapons, enemy fire, sighting
   calls, death screams, dog bark/attack, doors), 8-bit mono at 7042 Hz via Web
   Audio
+- **AdLib music**, decoded from your `AUDIOT` and played through an OPL2 (YM3812)
+  synthesiser written for this project. Optional: tick **Music** on the menu, and
+  supply `AUDIOHED.WL6` + `AUDIOT.WL6`. Each floor gets its own track, from the same
+  `songs[]` table the original uses.
 - Solid-colour floor/ceiling (as in the original)
 - **The original VGAGRAPH status bar and BJ face** (health-driven, with the
   number/weapon/key icons), when you also supply `VGAGRAPH`/`VGAHEAD`/`VGADICT`;
@@ -153,8 +174,7 @@ On load, enemies resume cleanly as dead, as hunting you, or as originally placed
 
 ## What it does NOT do (yet)
 
-Still out of scope: Adlib/IMF music (`AUDIOT`/`AUDIOHED`, which needs an OPL2
-emulator). The pickup and locked-door sounds are Adlib in the original (not in
+Still out of scope: The pickup and locked-door sounds are Adlib in the original (not in
 VSWAP's digitized bank), so they are short **synthesized** Web Audio tones here —
 distinct blips for health, ammo, weapons, treasure, keys and the one-up, plus a
 low buzz for a locked door — pending a real OPL2/AUDIOT path. Combat, enemy and
@@ -208,11 +228,18 @@ Deliberately simplified (and easy to extend later):
   The kill itself doesn't end the floor either — the ending hangs off the *last*
   death frame, exactly as `A_StartDeathCam` does, so the boss finishes going down
   before the intermission appears.
-- **Death cries are per class**: the guard picks from eight screams (`US_RndT()%8`
-  — and chunk 13 is in that pool twice, so it really is twice as likely), the
-  officer goes out on *"Nein, so was!"*, the SS on *"Mein Leben!"*, the mutant on
-  *"Ahhhg"*, and each boss has one of his own. The mutant is also the only enemy
-  that spots you in complete silence.
+- **Sight and death cries are per class**, each mapped to the digi chunk the
+  original plays: the guard picks from eight death screams (`US_RndT()%8` — and
+  chunk 13 sits in that pool twice, so it genuinely is twice as likely), and every
+  boss has one of his own. The mutant is the only enemy that spots you in complete
+  silence.
+
+  The sound *names* are id's own identifiers rather than transcriptions, and the two
+  don't always line up: `DEATHSCREAM2` and `DEATHSCREAM3` both point at chunk 13, and
+  `DEATHSCREAM6` is simply called `FART`. This port uses the identifiers only to pick
+  the right chunk — what a given sample actually says is a question for your ears, not
+  for the source code. (The samples are 8-bit mono at 7042 Hz and shouted; several of
+  them are famously hard to make out.)
 - **The secret-floor easter egg is in.** On the secret floor only, every regular
   enemy has a 1-in-256 chance of dying on `DEATHSCREAM6` instead of his usual cry.
   The source's own name for that sound is, and we quote, `FART`. Bosses are
@@ -243,6 +270,8 @@ uWolf/
   js/raycaster.js   the renderer
   js/enemies.js     enemy spawn decoding + 8-direction sprite selection
   js/sound.js       Web Audio playback of the VSWAP digitized sounds
+  js/opl2.js        a YM3812 (OPL2) FM synthesiser — the one piece of hardware here
+  js/music.js       AUDIOHED/AUDIOT parsing, the IMF sequencer, Web Audio output
   js/ai.js          enemy AI, the actor state machine, and player combat
   js/vgagraph.js    VGAGRAPH decoder (Huffman + planar) for the status bar/face
   js/game.js        loop, input, doors, combat wiring, HUD, collision, minimap
@@ -313,6 +342,31 @@ Wolf4SDL/ECWolf `gamepal.inc`.
   lighting (off by default for an authentic look).
 - `raycaster.ceilColor` / `floorColor` — per-taste, or wire up the original
   per-level ceiling table if you want.
+
+## The music
+
+`AUDIOT` contains no notes. It contains *register writes* for the AdLib card's OPL2
+chip, in IMF format: four bytes per packet — register, value, and a 16-bit delay in
+ticks of a 700 Hz clock. To hear the music you therefore have to *be* the chip, which
+is what `js/opl2.js` is: nine channels of two-operator FM synthesis, phase
+accumulators feeding a quarter-sine table in the log domain, with envelope, key
+scaling and tremolo added as attenuation *in that same log domain* and converted back
+through an exp table — which is exactly how the silicon avoids ever multiplying.
+
+It is written from the documented behaviour of the part rather than transcribed from
+an existing emulator. That is partly a matter of taste and partly a matter of
+licensing: the emulator Wolf4SDL itself uses is MAME's `fmopl.c`, which is explicitly
+**not** GPL — it is the one file its own changelog carves out of the GPL relicensing.
+If you ever want a reference implementation to compare against, use DOSBox's `dbopl`,
+which is GPL.
+
+There is no reference recording to diff against, so `test/test_opl.js` checks the chip
+against physics instead: that a key-on makes a sound and a key-off stops it, that the
+pitch really is `FNUM * 49716 / 2^(20-BLOCK)`, that raising the block by one doubles
+the frequency, that `MULT=2` is an octave, that eight steps of total level halve the
+amplitude, that envelopes rise and fall in the right order, that the four waveforms are
+chopped up the way the datasheet says, and that nine voices saturate rather than fold
+over.
 
 ## Source & credits
 

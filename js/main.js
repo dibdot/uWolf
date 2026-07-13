@@ -29,11 +29,13 @@
 				o.textContent = 'E' + ep + ' F' + fl + ' — ' + lv.name;
 				sel.appendChild(o);
 			});
+			setupMusic(buffers);
 			$('levelBox').classList.remove('hidden');
 			refreshSaves();
 			say('Loaded ' + game.data.numWalls + ' wall textures, ' + game.data.numSprites +
 				' sprites, ' + levels.length + ' levels.' +
-				(game.data.vga ? ' Original status bar + face enabled.' : ''));
+				(game.data.vga ? ' Original status bar + face enabled.' : '') +
+				(game.music ? ' AdLib music available.' : ''));
 		} catch (e) {
 			say('Could not parse data: ' + e.message, true);
 		}
@@ -49,7 +51,10 @@
 	var CANDIDATES_OPT = {
 		VGAGRAPH: ['VGAGRAPH.WL6', 'vgagraph.wl6'],
 		VGAHEAD: ['VGAHEAD.WL6', 'vgahead.wl6'],
-		VGADICT: ['VGADICT.WL6', 'vgadict.wl6']
+		VGADICT: ['VGADICT.WL6', 'vgadict.wl6'],
+		// Only needed for the AdLib music.
+		AUDIOHED: ['AUDIOHED.WL6', 'audiohed.wl6'],
+		AUDIOT: ['AUDIOT.WL6', 'audiot.wl6']
 	};
 
 	function fetchFirst(list) {
@@ -71,11 +76,13 @@
 		var optional = function (list) { return fetchFirst(list).catch(function () { return null; }); };
 		Promise.all([
 			fetchFirst(CANDIDATES.VSWAP), fetchFirst(CANDIDATES.MAPHEAD), fetchFirst(CANDIDATES.GAMEMAPS),
-			optional(CANDIDATES_OPT.VGAGRAPH), optional(CANDIDATES_OPT.VGAHEAD), optional(CANDIDATES_OPT.VGADICT)
+			optional(CANDIDATES_OPT.VGAGRAPH), optional(CANDIDATES_OPT.VGAHEAD), optional(CANDIDATES_OPT.VGADICT),
+			optional(CANDIDATES_OPT.AUDIOHED), optional(CANDIDATES_OPT.AUDIOT)
 		])
 			.then(function (b) {
 				var buffers = { VSWAP: b[0], MAPHEAD: b[1], GAMEMAPS: b[2] };
 				if (b[3] && b[4] && b[5]) { buffers.VGAGRAPH = b[3]; buffers.VGAHEAD = b[4]; buffers.VGADICT = b[5]; }
+				if (b[6] && b[7]) { buffers.AUDIOHED = b[6]; buffers.AUDIOT = b[7]; }
 				afterLoad(buffers);
 			})
 			.catch(function () {
@@ -87,6 +94,44 @@
 	loadFromServer();   // auto-load from the webroot on open
 
 	// --- Start / HUD ---
+	// --- Music (AdLib / OPL2) ---
+	// AUDIOHED + AUDIOT are optional; without them the checkbox stays off and disabled.
+	var MUSIC_KEY = 'uwolf.music';
+
+	function setupMusic(buffers) {
+		var box = $('musicChk');
+		game.music = null;
+
+		if (!window.WolfMusic || !buffers.AUDIOHED || !buffers.AUDIOT || !game.sound) {
+			box.checked = false;
+			box.disabled = true;
+			box.parentNode.title = 'Needs AUDIOHED.WL6 and AUDIOT.WL6';
+			return;
+		}
+		try {
+			var audio = new window.WolfMusic.WolfAudio(buffers.AUDIOHED, buffers.AUDIOT);
+			if (!audio.musicCount()) throw new Error('no tracks');
+			game.music = new window.WolfMusic.MusicPlayer(game.sound.context(), audio);
+		} catch (e) {
+			game.music = null;
+			box.checked = false;
+			box.disabled = true;
+			return;
+		}
+
+		box.disabled = false;
+		var stored = null;
+		try { stored = window.localStorage.getItem(MUSIC_KEY); } catch (e) { /* ignore */ }
+		box.checked = (stored === null) ? true : (stored === '1');    // on by default, as in the original
+		game.music.setEnabled(box.checked);
+	}
+
+	$('musicChk').addEventListener('change', function () {
+		var on = $('musicChk').checked;
+		try { window.localStorage.setItem(MUSIC_KEY, on ? '1' : '0'); } catch (e) { /* ignore */ }
+		if (game.music) game.music.setEnabled(on);
+	});
+
 	// --- Mobile controls (the on-screen FIRE button) ---
 	// Off on desktop, where it just covers the view; on by default if the browser
 	// reports a touch device. The choice is remembered across reloads.
@@ -245,17 +290,26 @@
 		$('menu').classList.remove('hidden');
 		$('hud').classList.add('hidden');
 		if (game.minimap) game.minimap.style.display = 'none';
-		var score = game.gs.score, floor = game._levelIndex + 1;
+		var score = game.gs.score, where = game._floorLabel();
 		game.clearRun();
 		refreshSaves();
-		say('Game over on floor ' + floor + ' — final score ' + score + '. Start a new game or load a save.');
+		say('Game over on ' + where + ' — final score ' + score + '. Start a new game or load a save.');
 	};
 
+	// Formatted explicitly rather than via toLocaleString(): the latter would follow
+	// whatever locale the browser happens to be in, so the same save would read
+	// "3/7/2026, 9:05 PM" on one machine and "03.07.2026, 21:05" on the next.
+	function two(n) { return (n < 10 ? '0' : '') + n; }
+
+	function stamp(ts) {
+		var d = new Date(ts);
+		return two(d.getDate()) + '/' + two(d.getMonth() + 1) + '/' + d.getFullYear() +
+			' ' + two(d.getHours()) + ':' + two(d.getMinutes());
+	}
+
 	function describe(info) {
-		var d = new Date(info.ts);
-		var when = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-		return 'Floor ' + info.floor + ' · ' + info.health + '% · ' + info.score + ' pts · ' +
-			(DIFF_NAME[info.difficulty] || '?') + ' · ' + when;
+		return info.label + ' · ' + info.health + '% · ' + info.score + ' pts · ' +
+			(DIFF_NAME[info.difficulty] || '?') + ' · ' + stamp(info.ts);
 	}
 
 	function refreshSaves() {

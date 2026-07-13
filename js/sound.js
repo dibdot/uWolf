@@ -64,6 +64,10 @@
 
 	// Play digitized chunk `i`. `gain` defaults to 1. Silently no-ops if audio is
 	// unavailable, disabled, or the chunk does not exist.
+	// The music player shares this context: one AudioContext per page is plenty, and
+	// the browser only unlocks it once.
+	SoundManager.prototype.context = function () { return this._ac(); };
+
 	SoundManager.prototype.play = function (i, gain) {
 		if (!this.enabled || i == null || i < 0) return;
 		var c = this._ac();

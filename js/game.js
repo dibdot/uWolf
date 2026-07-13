@@ -28,15 +28,29 @@
 
 	// Collectible items (plane1 code -> effect), from GetBonus. `min`/`gib` gate
 	// whether the item is taken (health/ammo pickups are left if not useful).
+	// AdLib sound effects (indices into AUDIOT's AdLib table). These were never
+	// digitised — VSWAP has no pickup sounds at all — so before opl2.js there was
+	// nothing to play here but a synthesised stand-in.
+	var ADLIB = {
+		NOWAY: 6, PLAYERDEATH: 9, GETKEY: 12, GETMACHINE: 30, GETAMMO: 31,
+		HEALTH1: 33, HEALTH2: 34, BONUS1: 35, BONUS2: 36, BONUS3: 37,
+		GETGATLING: 38, BONUS1UP: 44, BONUS4: 45
+	};
+
 	var PICKUP = {
-		29: { health: 4 }, 47: { health: 10 }, 48: { health: 25 },   // dog food / food / first aid
+		29: { health: 4, snd: ADLIB.HEALTH1 },                        // dog food
+		47: { health: 10, snd: ADLIB.HEALTH1 },                       // food
+		48: { health: 25, snd: ADLIB.HEALTH2 },                       // first aid
 		57: { gib: 1 }, 61: { gib: 1 },                               // gibs (only when nearly dead)
-		49: { ammo: 8 },                                              // ammo clip
-		50: { weapon: 2 }, 51: { weapon: 3 },                         // machine gun / chain gun
-		52: { points: 100, treasure: 1 }, 53: { points: 500, treasure: 1 },
-		54: { points: 1000, treasure: 1 }, 55: { points: 5000, treasure: 1 }, // cross/chalice/bible/crown
-		56: { fullheal: 1 },                                          // one-up (heal + ammo + extra life)
-		43: { key: 0 }, 44: { key: 1 }                               // gold key / silver key
+		49: { ammo: 8, snd: ADLIB.GETAMMO },                          // ammo clip
+		50: { weapon: 2, snd: ADLIB.GETMACHINE },                     // machine gun
+		51: { weapon: 3, snd: ADLIB.GETGATLING },                     // chain gun
+		52: { points: 100, treasure: 1, snd: ADLIB.BONUS1 },          // cross
+		53: { points: 500, treasure: 1, snd: ADLIB.BONUS2 },          // chalice
+		54: { points: 1000, treasure: 1, snd: ADLIB.BONUS3 },         // bible
+		55: { points: 5000, treasure: 1, snd: ADLIB.BONUS4 },         // crown
+		56: { fullheal: 1, snd: ADLIB.BONUS1UP },                     // one-up
+		43: { key: 0, snd: ADLIB.GETKEY }, 44: { key: 1, snd: ADLIB.GETKEY }
 	};
 	// Plane codes for the "use" (Space) mechanic.
 	var PUSHABLE = 98, ELEVATOR = 21;   // PUSHABLETILE / ELEVATORTILE
@@ -46,6 +60,18 @@
 	// Where the secret floor spits you back out, per episode (ElevatorBackTo[]).
 	var ELEVATOR_BACK_TO = [1, 1, 7, 3, 5, 3];
 	var EPISODE_FLOORS = 10;            // 8 normal + boss (index 8) + secret (index 9)
+
+	// songs[] from wl_play.cpp: which of the 27 tracks plays on each of the 60 floors.
+	// Episodes 4-6 reuse the music of 1-3; only the final secret floor differs
+	// (FUNKYOU_MUS instead of PACMAN_MUS).
+	var SONGS = [
+		3, 11, 9, 12, 3, 11, 9, 12, 2, 0,        // episode 1  (boss: WARMARCH, secret: CORNER)
+		8, 18, 17, 4, 8, 18, 4, 17, 2, 1,        // episode 2
+		6, 20, 22, 21, 6, 20, 22, 21, 19, 26,    // episode 3  (secret: PACMAN)
+		3, 11, 9, 12, 3, 11, 9, 12, 2, 0,        // episode 4
+		8, 18, 17, 4, 8, 18, 4, 17, 2, 1,        // episode 5
+		6, 20, 22, 21, 6, 20, 22, 21, 19, 15     // episode 6  (secret: FUNKYOU)
+	];
 	var ARROW_FIRST = 90;               // ICONARROWS: plane1 90..97 = patrol turn arrows
 	var PUSH_SPEED = 70 / 128;          // tiles/sec — matches MovePWalls (128 tics/tile @ 70Hz)
 
@@ -126,6 +152,7 @@
 	Game.prototype.exitToMenu = function () {
 		if (!this.running) return;
 		this.running = false;
+		if (this.music) this.music.silence();      // the world is paused; so is the band
 		if (this.onMenu) this.onMenu();
 	};
 
@@ -140,6 +167,7 @@
 		this.running = true;
 		this._last = performance.now();      // don't bill the menu time to the next frame
 		this.setShowMap(this.showMap);
+		if (this.music) this.music.play(SONGS[this._levelIndex % SONGS.length]);
 		requestAnimationFrame(this._loop.bind(this));
 		return true;
 	};
@@ -147,6 +175,7 @@
 	// Drop the current run entirely (after a game over), so nothing is left to resume.
 	Game.prototype.clearRun = function () {
 		this.running = false;
+		if (this.music) this.music.stop();
 		this.level = null;
 		this.ai = null;
 		if (this.rc) this.rc.sprites = [];
@@ -285,6 +314,8 @@
 		this.rc.sprites = sprites.concat(this.ai.actors);
 		this._resize();
 		this.setShowMap(this.showMap);
+		// Each floor has its own track (songs[] in wl_play.cpp).
+		if (this.music) this.music.play(SONGS[index % SONGS.length]);
 		if (!this.running) { this.running = true; this._last = performance.now(); requestAnimationFrame(this._loop.bind(this)); }
 	};
 
@@ -415,21 +446,30 @@
 
 	Game.prototype._hurtPlayer = function (pts, actor) {
 		var gs = this.gs;
-		if (gs.godmode || gs.dead) return;
+		if (gs.dead) return;
 		if (gs.difficulty === 0) pts = pts >> 2;   // baby mode: quarter damage
 		if (pts <= 0) return;
-		gs.health -= pts;
+
+		// God mode costs no health — but the hit still registers on screen. TakeDamage()
+		// skips only the health subtraction (`if (!godmode) gamestate.health -= points`)
+		// and still calls StartDamageFlash(), so you can see you are being shot at.
+		// (Wolf4SDL's godmode==2, the "silent" level, is the one that drops the flash;
+		// we don't implement that.) The FACE, on the other hand, does NOT react: it is
+		// picked purely from health, and health never moves — so BJ keeps grinning.
 		gs.damageFlash = Math.min(1, gs.damageFlash + 0.25 + pts / 50);
+		if (gs.godmode) return;
+
+		gs.health -= pts;
 		if (gs.health <= 0) { gs.health = 0; this._playerDied(actor); }
 	};
 
 	Game.prototype._playerDied = function () {
 		var gs = this.gs;
 		gs.dead = true; gs.respawn = 1.8; gs.damageFlash = 1;
-		// No sound here on purpose: the player's death cry (PLAYERDEATHSND) is an
-		// Adlib-only effect and is not in wolfdigimap at all. We used to play digi
-		// chunk 18 — but that is DIESND, i.e. Hitler shouting "Die!", which is simply
-		// the wrong sound.
+		// PLAYERDEATHSND is an AdLib-only effect: it is not in wolfdigimap, which is why
+		// there was nothing to play here before opl2.js existed. (We used to play digi
+		// chunk 18 by mistake — that is DIESND, Hitler shouting "Die!".)
+		this._sfx(ADLIB.PLAYERDEATH, null);
 	};
 
 	// ---- Pickups -----------------------------------------------------------
@@ -445,27 +485,32 @@
 
 	Game.prototype._collect = function (code) {
 		var gs = this.gs, it = PICKUP[code];
-		if (it.health != null) { if (gs.health >= 100) return false; this._heal(it.health); this._sfx('health'); }
+		if (it.health != null) { if (gs.health >= 100) return false; this._heal(it.health); this._sfx(it.snd, 'health'); }
 		else if (it.gib) {
 			if (gs.health > 10) return false;
 			this._heal(1);
 			if (this.sound && DIGI) this.sound.play(DIGI.SLURPIE, 0.5);
 		}
-		else if (it.ammo != null) { if (gs.ammo >= 99) return false; this._giveAmmo(it.ammo); this._sfx('ammo'); }
-		else if (it.weapon != null) { this._giveWeapon(it.weapon); this._sfx('weapon'); }
+		else if (it.ammo != null) { if (gs.ammo >= 99) return false; this._giveAmmo(it.ammo); this._sfx(it.snd, 'ammo'); }
+		else if (it.weapon != null) { this._giveWeapon(it.weapon); this._sfx(it.snd, 'weapon'); }
 		else if (it.fullheal) {
 			this._heal(99); this._giveAmmo(25);
 			if (gs.lives < 9) gs.lives++;
 			this._stats.treasureFound++;
-			this._sfx('1up');
+			this._sfx(it.snd, '1up');
 		}
-		else if (it.key != null) { this.gs.keys |= (1 << it.key); this._sfx('key'); }
-		else if (it.points != null) { gs.score += it.points; if (it.treasure) this._stats.treasureFound++; this._sfx('treasure'); }
+		else if (it.key != null) { this.gs.keys |= (1 << it.key); this._sfx(it.snd, 'key'); }
+		else if (it.points != null) { gs.score += it.points; if (it.treasure) this._stats.treasureFound++; this._sfx(it.snd, 'treasure'); }
 		else return false;
 		return true;
 	};
 
-	Game.prototype._sfx = function (name) { if (this.sound && this.sound.sfx) this.sound.sfx(name); };
+	// Play an AdLib effect if we have AUDIOT, otherwise fall back to the synthesised
+	// stand-in. `adlib` is an index into AUDIOT's AdLib sound table.
+	Game.prototype._sfx = function (adlib, fallback) {
+		if (this.music && adlib != null && this.music.playSfx(adlib)) return;
+		if (this.sound && this.sound.sfx && fallback) this.sound.sfx(fallback);
+	};
 
 	Game.prototype._heal = function (n) { this.gs.health = Math.min(100, this.gs.health + n); };
 	// Effective keys the player holds — god mode counts as carrying every key.
@@ -543,7 +588,7 @@
 	Game.prototype._openDoor = function (d, announce) {
 		if (!d) return;
 		if (d.lock >= 1 && d.lock <= 4 && !(this._effKeys() & (1 << (d.lock - 1)))) {
-			if (announce) { this._lockMsg = 1.4; this._sfx('locked'); }   // locked: needs the matching key
+			if (announce) { this._lockMsg = 1.4; this._sfx(ADLIB.NOWAY, 'locked'); }   // locked: needs the matching key
 			return;
 		}
 		if (d.state === 'closed' || d.state === 'closing') {
@@ -556,9 +601,27 @@
 	// The status bar shows the floor WITHIN the episode (mapon+1 => 1..10), like the
 	// original — not the absolute index, which would count up to 60 and make the first
 	// floor of episode 4 read as "31".
+	// Which of the 27 tracks belongs to a floor (songs[] in wl_play.cpp).
+	Game.prototype._songFor = function (index) {
+		var i = (index == null) ? this._levelIndex : index;
+		return SONGS[i % SONGS.length];
+	};
+
 	Game.prototype._floorNumber = function (index) {
 		var i = (index == null) ? this._levelIndex : index;
 		return (i % EPISODE_FLOORS) + 1;
+	};
+
+	Game.prototype._episodeNumber = function (index) {
+		var i = (index == null) ? this._levelIndex : index;
+		return ((i / EPISODE_FLOORS) | 0) + 1;
+	};
+
+	// "E3 F9". Anything that shows a position in the game uses this — the raw level
+	// index is a storage detail and must never reach the player (a save on level index
+	// 52 used to be listed as "Floor 53", which is not a floor that exists).
+	Game.prototype._floorLabel = function (index) {
+		return 'E' + this._episodeNumber(index) + ' F' + this._floorNumber(index);
 	};
 
 	Game.prototype._rideElevator = function (cx, cy) {
@@ -896,7 +959,7 @@
 			ctx.fillText('GAME OVER', cx, H * 0.42);
 			ctx.fillStyle = '#d8d8d8';
 			ctx.font = 'bold ' + Math.max(10, H * 0.035) + 'px monospace';
-			ctx.fillText('SCORE ' + gs.score + '  ·  FLOOR ' + this._floorNumber(), cx, H * 0.56);
+			ctx.fillText('SCORE ' + gs.score + '  ·  ' + this._floorLabel(), cx, H * 0.56);
 			ctx.fillStyle = '#8a8a8a';
 			ctx.font = Math.max(9, H * 0.028) + 'px monospace';
 			ctx.fillText('press space / tap to continue', cx, H * 0.66);
@@ -1261,7 +1324,11 @@
 			var st = JSON.parse(raw);
 			if (st.v !== SAVE_VERSION) return null;
 			return {
-				slot: slot, ts: st.ts, floor: st.floor + 1,
+				slot: slot, ts: st.ts,
+				index: st.floor,                      // the absolute index is storage only
+				label: this._floorLabel(st.floor),    // ...this is what a player sees
+				episode: this._episodeNumber(st.floor),
+				floor: this._floorNumber(st.floor),
 				health: st.gs.health, score: st.gs.score, lives: st.gs.lives,
 				difficulty: st.gs.difficulty
 			};

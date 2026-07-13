@@ -172,18 +172,27 @@ One deliberate simplification: an actor's mid-animation frame is not preserved.
 On load, enemies resume cleanly as dead, as hunting you, or as originally placed
 — an enemy caught mid-shot won't finish that particular shot.
 
-## What it does NOT do (yet)
+## What it does NOT do
 
-Still out of scope: The pickup and locked-door sounds are Adlib in the original (not in
-VSWAP's digitized bank), so they are short **synthesized** Web Audio tones here —
-distinct blips for health, ammo, weapons, treasure, keys and the one-up, plus a
-low buzz for a locked door — pending a real OPL2/AUDIOT path. Combat, enemy and
-door sounds still use the genuine digitized samples from your VSWAP.
+Sound and music are complete: with `AUDIOHED`/`AUDIOT` you get the real AdLib music
+*and* the real AdLib effects, and the digitised samples come from your `VSWAP`.
+(Without those two files the pickup and locked-door sounds fall back to short
+synthesised tones — a stand-in, not the plan.)
 
-The status bar, BJ face and UI icons are read from `VGAGRAPH`/`VGAHEAD`/`VGADICT`
-if present. Those three are optional — without them the engine falls back to a
-small built-in HUD. The graphics-chunk numbers used are the WL6 layout; only the registered
-WL6 data set is targeted.
+What is genuinely still missing:
+
+- **Boss attack patterns.** Bosses chase and shoot, but Schabbs doesn't throw
+  syringes, Fat Face doesn't fire rockets and Hitler doesn't spray fireballs — there
+  are no projectile actors at all.
+- **The death-cam.** Killing a floor-ending boss cuts straight to the stats instead of
+  flying the camera over to watch him fall, and B.J.'s victory run at the castle exit
+  is a sound without the animation.
+- **Spear of Destiny.** Only the registered WL6 data set is targeted; `.SOD` numbers
+  its chunks differently and would need its own tables.
+
+The status bar, BJ face and UI icons are read from `VGAGRAPH`/`VGAHEAD`/`VGADICT` if
+present. Those three are optional — without them the engine falls back to a small
+built-in HUD.
 
 ### Combat: what is faithful vs. simplified
 
@@ -318,14 +327,24 @@ the WL6 files there and press **Retry**.
 
 ## Sound
 
-Browsers only start audio after a user interaction, so the first key press or
-touch unlocks it. Door open/close and enemy-approach sounds then play from your
-`VSWAP`'s digitized-sound bank. To audit the whole bank against your data, the
-running game exposes the manager: after clicking into the game once, open the
-console and sweep them by index, e.g. `game.sound.count()` and
-`game.sound.play(0)` (0 = "Halt!", 2/3 = door close/open — see `sound.js`
-`DIGI` for the WL6 names). Note these are the *digitized* effects; the Adlib
-music and Adlib-only cues arrive with the `AUDIOT` step.
+Browsers only start audio after a user interaction, so the first key press or touch
+unlocks it.
+
+There are two banks, and the original keeps them apart. The **digitised** samples —
+weapons, doors, enemy shouts and death cries — come from your `VSWAP`. The **AdLib**
+effects — pickups, keys, locked doors, the player's own death — were never digitised
+at all, and come from `AUDIOT` through the OPL2. That is why those sounds were missing
+until the chip existed.
+
+To audit either bank against your data, the running game exposes both: after clicking
+into the game once, open the console and sweep them by index —
+`game.sound.play(0)` for the digitised bank (0 = "Halt!", 2/3 = door close/open; see
+`DIGI` in `sound.js`), and `game.music.playSfx(31)` for the AdLib one (31 = pick up
+ammo; see `ADLIB` in `game.js`).
+
+A caution about the names in both tables: they are id's identifiers, not
+transcriptions, and the two don't always line up — `DEATHSCREAM2` and `DEATHSCREAM3`
+point at the same chunk, and `DEATHSCREAM6` is called `FART`.
 
 ## Palette
 

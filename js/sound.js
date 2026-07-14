@@ -68,6 +68,14 @@
 	// the browser only unlocks it once.
 	SoundManager.prototype.context = function () { return this._ac(); };
 
+	// How long a digitised chunk runs, in seconds. The elevator needs this: the original
+	// plays LEVELDONESND and then busy-waits for it (SD_WaitSoundDone) before the
+	// intermission appears.
+	SoundManager.prototype.duration = function (i) {
+		var pcm = this.data && this.data.getDigiSound(i);
+		return pcm && pcm.length ? pcm.length / this.rate : 0;
+	};
+
 	SoundManager.prototype.play = function (i, gain) {
 		if (!this.enabled || i == null || i < 0) return;
 		var c = this._ac();
@@ -83,7 +91,7 @@
 	};
 
 	// --- Procedural sound effects -----------------------------------------
-	// Wolfenstein's pickup/UI sounds are Adlib (not in VSWAP's digitized bank),
+	// Wolfenstein's pickup/UI sounds are FM, not in VSWAP's digitized bank,
 	// so these are short synthesized tones used for item pickups and locked doors
 	// until an OPL2/AUDIOT path exists.
 	SoundManager.prototype.tone = function (freq, start, dur, type, peak) {

@@ -14,11 +14,32 @@
 	function isDoor(t) { return t >= 90 && t <= 101; }
 	function doorVertical(t) { return (t & 1) === 0; } // even codes = vertical slab
 
-	function doorTexPage(t, numWalls) {
-		var p;
-		if (t === 100 || t === 101) p = 103;       // elevator door
-		else if (t >= 92 && t <= 95) p = 105;      // locked (gold/silver)
-		else p = 99;                               // normal door face
+	// Every wall tile has TWO textures in VSWAP — a light one and a darker one — and
+	// which you see depends on which face of the block the ray struck:
+	//
+	//     horizwall[i] = (i-1)*2      the north/south faces   (HitHorizWall)
+	//     vertwall[i]  = (i-1)*2 + 1  the east/west faces     (HitVertWall)
+	//
+	// That IS Wolfenstein's lighting: there is no shading at runtime, the artists simply
+	// drew a darker variant for one orientation. `side` here is the raycaster's own: 0
+	// means the ray crossed an X boundary, i.e. it hit an east/west face — so side 0
+	// takes the *vertical* page, the odd one. Getting this backwards is invisible on
+	// most walls (the two variants are the same bricks) but not on the elevator, whose
+	// two faces are a lever and a blank panel.
+	function wallTexPage(t, side, numWalls) {
+		var p = (t - 1) * 2 + (side === 0 ? 1 : 0);
+		if (p < 0) p = 0;
+		if (p >= numWalls) p = numWalls - 1;
+		return p;
+	}
+
+	// Doors work the same way (HitVertDoor / HitHorizDoor), from DOORWALL = 98.
+	function doorTexPage(t, side, numWalls) {
+		var base;
+		if (t === 100 || t === 101) base = 102;        // elevator door
+		else if (t >= 92 && t <= 95) base = 104;       // locked (gold/silver)
+		else base = 98;                                // normal door
+		var p = base + (side === 0 ? 1 : 0);
 		if (p >= numWalls) p = numWalls - 1;
 		return p;
 	}
@@ -60,8 +81,8 @@
 			if (rayDirY < 0) texX = 63 - texX;
 		}
 		if (texX < 0) texX = 0; if (texX > 63) texX = 63;
-		var page = (pw.tile - 1) * 2 + (side === 1 ? 1 : 0);
-		return { perpDist: tenter, texX: texX, tex: this.data.getWallCanvas(page, side === 1), side: side };
+		var page = wallTexPage(pw.tile, side, this.data.numWalls);
+		return { perpDist: tenter, texX: texX, tex: this.data.getWallCanvas(page, false), side: side };
 	};
 
 	Raycaster.prototype.setLevel = function (level, doors) {
@@ -125,7 +146,7 @@
 							if (frac >= open) {                 // solid part of slab
 								perpDist = pd; side = 0;
 								texX = ((frac - open) * 64) | 0;
-								tex = data.getWallCanvas(doorTexPage(t, data.numWalls), false);
+								tex = data.getWallCanvas(doorTexPage(t, 0, data.numWalls), false);
 								hit = 1;
 							}
 						}
@@ -138,7 +159,7 @@
 							if (frac2 >= open) {
 								perpDist = pd2; side = 1;
 								texX = ((frac2 - open) * 64) | 0;
-								tex = data.getWallCanvas(doorTexPage(t, data.numWalls), true);
+								tex = data.getWallCanvas(doorTexPage(t, 1, data.numWalls), false);
 								hit = 1;
 							}
 						}
@@ -155,8 +176,7 @@
 					// Flip so textures aren't mirrored, matching original orientation.
 					if (side === 0 && rayDirX > 0) texX = 63 - texX;
 					if (side === 1 && rayDirY < 0) texX = 63 - texX;
-					var page = (t - 1) * 2 + (side === 1 ? 1 : 0);
-					tex = data.getWallCanvas(page, side === 1);
+					tex = data.getWallCanvas(wallTexPage(t, side, data.numWalls), false);
 					hit = 1;
 				}
 			}
@@ -222,6 +242,7 @@
 		}
 	};
 
-	Raycaster.helpers = { isWall: isWall, isDoor: isDoor, doorVertical: doorVertical };
+	Raycaster.helpers = { isWall: isWall, isDoor: isDoor, doorVertical: doorVertical,
+		wallTexPage: wallTexPage, doorTexPage: doorTexPage };
 	root.Raycaster = Raycaster;
 })(typeof window !== 'undefined' ? window : this);

@@ -38,9 +38,9 @@ built-in HUD is used):
 Optional (only for the music):
 
 - `AUDIOHED.WL6` — chunk offsets into `AUDIOT`
-- `AUDIOT.WL6` — the AdLib instruments, the sound effects and the 27 music tracks
+- `AUDIOT.WL6` — the FM instruments, the sound effects and the 27 music tracks
 
-With those two files you also get the **AdLib sound effects** — the pickup, key,
+With those two files you also get the **FM sound effects** — the pickup, key,
 locked-door and player-death sounds. Those were never digitised (they are not in
 `VSWAP` at all), so without an OPL2 there was nothing to play but a synthesised
 stand-in. They are independent of the **Music** toggle, exactly as the original keeps
@@ -103,7 +103,7 @@ Spear of Destiny `.SOD`, …) are not supported.
 - **Digitized sound effects from your `VSWAP`** (weapons, enemy fire, sighting
   calls, death screams, dog bark/attack, doors), 8-bit mono at 7042 Hz via Web
   Audio
-- **AdLib music**, decoded from your `AUDIOT` and played through an OPL2 (YM3812)
+- **FM music**, decoded from your `AUDIOT` and played through an OPL2 (YM3812)
   synthesiser written for this project. Optional: tick **Music** on the menu, and
   supply `AUDIOHED.WL6` + `AUDIOT.WL6`. Each floor gets its own track, from the same
   `songs[]` table the original uses.
@@ -120,7 +120,6 @@ Spear of Destiny `.SOD`, …) are not supported.
   you push the wall. This is a comfort feature — the original never showed them.
 - Keyboard + mouse on desktop, dual-zone touch controls plus WPN button on
   mobile
-- Adjustable internal render resolution for weaker devices
 
 ## Controls
 
@@ -174,25 +173,8 @@ On load, enemies resume cleanly as dead, as hunting you, or as originally placed
 
 ## What it does NOT do
 
-Sound and music are complete: with `AUDIOHED`/`AUDIOT` you get the real AdLib music
-*and* the real AdLib effects, and the digitised samples come from your `VSWAP`.
-(Without those two files the pickup and locked-door sounds fall back to short
-synthesised tones — a stand-in, not the plan.)
-
-What is genuinely still missing:
-
-- **Boss attack patterns.** Bosses chase and shoot, but Schabbs doesn't throw
-  syringes, Fat Face doesn't fire rockets and Hitler doesn't spray fireballs — there
-  are no projectile actors at all.
-- **The death-cam.** Killing a floor-ending boss cuts straight to the stats instead of
-  flying the camera over to watch him fall, and B.J.'s victory run at the castle exit
-  is a sound without the animation.
 - **Spear of Destiny.** Only the registered WL6 data set is targeted; `.SOD` numbers
   its chunks differently and would need its own tables.
-
-The status bar, BJ face and UI icons are read from `VGAGRAPH`/`VGAHEAD`/`VGADICT` if
-present. Those three are optional — without them the engine falls back to a small
-built-in HUD.
 
 ### Combat: what is faithful vs. simplified
 
@@ -211,16 +193,14 @@ level designers laid out — opening doors along the way — instead of wanderin
 
 Deliberately simplified (and easy to extend later):
 
-- **Activation is approximated by line of sight plus a one-hop gunfire noise.**
-  A shot floods the current room and any room exactly ONE open doorway away
-  (closed doors and walls block it, and a second door is never crossed), so it
-  alerts immediate neighbours without cascading across the level. Actors also
-  wake on line of sight. (The original instead flood-fills connected map
-  "areas", which are opened up door by door as you play.)
 - **Line-of-sight treats a door as see-through once it is roughly half open**,
   rather than testing the exact door-slab intercept.
-- **Bosses use a generic ranged chase** rather than each boss's unique attack
-  pattern. Everything else about them is per-boss and taken from the source:
+- **Each boss fights his own way.** Hans, Gretel, Mecha Hitler and Adolf use guns;
+  **Schabbs throws syringes**, **Giftmacher fires rockets**, **Fat Face** opens with a
+  rocket and follows up with chainguns, and **Fake Hitler** throws a volley of eight
+  fireballs. The projectiles fly straight at where you *were* when they were thrown —
+  they do not track, so sidestepping is a real defence — and a rocket that hits a wall
+  explodes. Everything else is per-boss and taken from the source:
   frames, sounds (each has his own taunt and death cry), points, the real
   `starthitpoints` (Schabbs has 2400 on hard, Fake Hitler only 500 — they are
   nowhere near each other), and how the floor ends:
@@ -253,6 +233,22 @@ Deliberately simplified (and easy to extend later):
   enemy has a 1-in-256 chance of dying on `DEATHSCREAM6` instead of his usual cry.
   The source's own name for that sound is, and we quote, `FART`. Bosses are
   excluded.
+- **Alerting uses the original's area system**, not a distance rule. Every floor tile
+  carries the room it belongs to (plane-0 codes from `AREATILE`), each door joins two
+  rooms, and a recursive flood from the player's room marks everything currently
+  reachable *through open doors*. `SightPlayer()` opens with
+  `if (!areabyplayer[ob->areanumber]) return false;` — which gates hearing **and**
+  seeing: a guard behind a shut door will not notice you even in a straight line. The
+  subtlety worth knowing: a door connects the two rooms the moment it *starts opening*
+  and disconnects only once it is shut **all the way**. That is why firing just after
+  walking through a door still wakes the room behind it — and why it looks as though
+  the sound went through a closed door.
+- **The death-cam and B.J.'s victory run.** Killing a floor-ending boss swings the
+  view round to where you were standing, turns it to face him and backs it out of the
+  wall, so you watch him go down ("LET'S SEE THAT AGAIN!") before the stats appear.
+  And stepping onto the castle exit tile no longer just plays a sound: B.J. himself
+  runs out — six tiles, following the map's turn arrows — jumps, and *that* is when he
+  says the only word he ever says.
 - **Floor progression is per episode**, not a flat +1: ten floors each (eight
   normal, the boss floor, then the secret floor). The elevator takes you to the
   next floor; standing on the *alternate* elevator tile takes you to the secret
@@ -324,68 +320,6 @@ Then browse to `http://<router-ip>:8088/`.
 `fetch().arrayBuffer()`, so no special MIME configuration is needed. The data
 loads automatically from the page's own folder on open; if it isn't found, add
 the WL6 files there and press **Retry**.
-
-## Sound
-
-Browsers only start audio after a user interaction, so the first key press or touch
-unlocks it.
-
-There are two banks, and the original keeps them apart. The **digitised** samples —
-weapons, doors, enemy shouts and death cries — come from your `VSWAP`. The **AdLib**
-effects — pickups, keys, locked doors, the player's own death — were never digitised
-at all, and come from `AUDIOT` through the OPL2. That is why those sounds were missing
-until the chip existed.
-
-To audit either bank against your data, the running game exposes both: after clicking
-into the game once, open the console and sweep them by index —
-`game.sound.play(0)` for the digitised bank (0 = "Halt!", 2/3 = door close/open; see
-`DIGI` in `sound.js`), and `game.music.playSfx(31)` for the AdLib one (31 = pick up
-ammo; see `ADLIB` in `game.js`).
-
-A caution about the names in both tables: they are id's identifiers, not
-transcriptions, and the two don't always line up — `DEATHSCREAM2` and `DEATHSCREAM3`
-point at the same chunk, and `DEATHSCREAM6` is called `FART`.
-
-## Palette
-
-The palette lives in `js/palette.js`. If some colours look wrong for your data,
-set `window.WOLF_PALETTE_OVERRIDE` (256 `[r,g,b]` triples or a flat 768-int
-array) before the scripts load, or paste the byte-exact table from the GPL'd
-Wolf4SDL/ECWolf `gamepal.inc`.
-
-## Tuning
-
-- `game.renderScale` (default `1.0`) — internal resolution vs. CSS size. Lower
-  is faster on phones; raise toward `1.0` on a desktop.
-- `raycaster.depthShade` — optional distance darkening on top of the two-tone
-  lighting (off by default for an authentic look).
-- `raycaster.ceilColor` / `floorColor` — per-taste, or wire up the original
-  per-level ceiling table if you want.
-
-## The music
-
-`AUDIOT` contains no notes. It contains *register writes* for the AdLib card's OPL2
-chip, in IMF format: four bytes per packet — register, value, and a 16-bit delay in
-ticks of a 700 Hz clock. To hear the music you therefore have to *be* the chip, which
-is what `js/opl2.js` is: nine channels of two-operator FM synthesis, phase
-accumulators feeding a quarter-sine table in the log domain, with envelope, key
-scaling and tremolo added as attenuation *in that same log domain* and converted back
-through an exp table — which is exactly how the silicon avoids ever multiplying.
-
-It is written from the documented behaviour of the part rather than transcribed from
-an existing emulator. That is partly a matter of taste and partly a matter of
-licensing: the emulator Wolf4SDL itself uses is MAME's `fmopl.c`, which is explicitly
-**not** GPL — it is the one file its own changelog carves out of the GPL relicensing.
-If you ever want a reference implementation to compare against, use DOSBox's `dbopl`,
-which is GPL.
-
-There is no reference recording to diff against, so `test/test_opl.js` checks the chip
-against physics instead: that a key-on makes a sound and a key-off stops it, that the
-pitch really is `FNUM * 49716 / 2^(20-BLOCK)`, that raising the block by one doubles
-the frequency, that `MULT=2` is an octave, that eight steps of total level halve the
-amplitude, that envelopes rise and fall in the right order, that the four waveforms are
-chopped up the way the datasheet says, and that nine voices saturate rather than fold
-over.
 
 ## Source & credits
 

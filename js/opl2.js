@@ -2,7 +2,7 @@
  * opl2.js — a Yamaha YM3812 (OPL2) FM synthesiser.
  *
  * This is the one part of uWolf that emulates *hardware* rather than parsing a file
- * format. AUDIOT contains no notes: it contains register writes for the AdLib card's
+ * format. AUDIOT contains no notes: it contains register writes for the sound card's
  * OPL2 chip. To hear the music you have to be the chip.
  *
  * Written from the documented behaviour of the part (Yamaha's application manual and

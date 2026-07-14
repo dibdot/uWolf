@@ -487,12 +487,18 @@ code {
 	}
 }
 
-/* --- The three groups of data files --- */
+/* --- The three groups of data files ---
+   The tight spot is a phone in portrait: after the panel padding, the step number and
+   the row's own padding there is barely 200px left, and "VGAGRAPH.WL6" alone is ~100px
+   of that. So every box is allowed to shrink (min-width: 0 — flex items refuse to by
+   default), the file names wrap onto their own lines, and nothing is nailed to a
+   pixel width. */
 .files {
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 	margin-top: 10px;
+	max-width: 100%;
 }
 
 .files-row {
@@ -501,6 +507,9 @@ code {
 	align-items: baseline;
 	gap: 4px 10px;
 	padding: 7px 9px;
+	box-sizing: border-box;
+	max-width: 100%;
+	min-width: 0;
 	background: #16160f;
 	border: 1px solid var(--edge);
 	border-left: 3px solid var(--accent);
@@ -512,8 +521,12 @@ code {
 }
 
 .files-what {
-	flex: 0 0 auto;
-	min-width: 190px;
+	/* Always a line of its own. Letting it share the line with the file names (flex:
+	   1 1 190px) meant a short label like "Music & sound effects" left just enough room
+	   for its two files to squeeze in beside it, while a longer one pushed its files
+	   down — so the three rows lined up differently for no reason the reader can see. */
+	flex: 0 0 100%;
+	min-width: 0;
 	font-size: 12px;
 	letter-spacing: 0.04em;
 	color: var(--ink);
@@ -528,6 +541,8 @@ code {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 6px;
+	min-width: 0;
+	max-width: 100%;
 }
 
 .files-list code {
@@ -536,8 +551,14 @@ code {
 	border-radius: 2px;
 	font-size: 12px;
 	white-space: nowrap;
+	max-width: 100%;
 }
 
 @media (max-width: 560px) {
-	.files-what { min-width: 100%; }
+	/* Give the text back the room the panel was spending on padding, and let the
+	   labels have a line to themselves so the file names never have to squeeze in
+	   beside them. */
+	.panel { padding: 18px 14px 16px; }
+	.step { gap: 10px; }
+	.files-list code { font-size: 11px; padding: 2px 5px; }
 }

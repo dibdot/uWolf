@@ -1,24 +1,24 @@
 /*
- * music.js — AdLib music: AUDIOHED/AUDIOT parsing, the IMF sequencer, and the bridge
+ * music.js — FM music: AUDIOHED/AUDIOT parsing, the IMF sequencer, and the bridge
  * to Web Audio.
  *
- * AUDIOT holds no notes. It holds *register writes* for the AdLib card's OPL2 chip,
+ * AUDIOT holds no notes. It holds *register writes* for the sound card's OPL2 (YM3812) chip,
  * in the IMF format: four bytes per packet — register, value, and a 16-bit delay
  * measured in ticks of a 700 Hz clock (SDL_t0FastAsmService ran at 700 Hz). The
  * sequencer below walks that list and hands the writes to opl2.js, which is the chip.
  *
  * Chunk layout (audiowl6.h): 87 logical sounds, three tables of them (PC speaker,
- * AdLib, digitised), so the music starts at chunk 3*87 = 261 and there are 27 tracks.
+ * FM, digitised), so the music starts at chunk 3*87 = 261 and there are 27 tracks.
  * Unlike VGAGRAPH, AUDIOT is not compressed — the chunks are raw.
  */
 (function (root) {
 	'use strict';
 
 	var STARTMUSIC = 261;      // 3 * LASTSOUND
-	var STARTADLIB = 87;       // LASTSOUND — the AdLib sound-effect table
+	var STARTFX = 87;          // LASTSOUND — where the FM sound-effect table starts
 	var NUM_MUSIC = 27;
 	var IMF_RATE = 700;        // the sequencer's tick rate, in Hz
-	var SFX_RATE = 140;        // AdLib effects step every 5th tick (soundTimeCounter = 5)
+	var SFX_RATE = 140;        // FM effects step every 5th tick (soundTimeCounter = 5)
 
 	// ---- AUDIOHED / AUDIOT ---------------------------------------------------
 	function WolfAudio(audiohed, audiot) {
@@ -36,7 +36,7 @@
 		return this.data.subarray(from, to);
 	};
 
-	// An AdLib sound effect: an instrument, an octave, and a list of note bytes played
+	// An FM sound effect: an instrument, an octave, and a list of note bytes played
 	// one per 140 Hz tick (a zero byte means "key off"). This is where the pickup and
 	// locked-door sounds live — they were never digitised, so VSWAP does not have them.
 	//
@@ -46,8 +46,8 @@
 	//               mSus, cSus, mWave, cWave, nConn, and three unused Muse bytes)
 	//   22  u8      block (the octave)
 	//   23  ...     note data
-	WolfAudio.prototype.adlib = function (index) {
-		var raw = this.chunk(STARTADLIB + index);
+	WolfAudio.prototype.fx = function (index) {
+		var raw = this.chunk(STARTFX + index);
 		if (!raw || raw.length < 24) return null;
 		var dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
 		var len = dv.getUint32(0, true);
@@ -169,12 +169,12 @@
 		}
 	};
 
-	// Play an AdLib sound effect. It takes over channel 0 for its duration — which is
+	// Play an FM sound effect. It takes over channel 0 for its duration — which is
 	// exactly what the original does; the music simply loses that voice for a moment.
 	// Effects do NOT depend on the music being switched on.
 	MusicPlayer.prototype.playSfx = function (index) {
 		if (!this.audio) return false;
-		var snd = this.audio.adlib(index);
+		var snd = this.audio.fx(index);
 		if (!snd) return false;
 		this._ensureNode();
 
@@ -195,7 +195,7 @@
 	};
 
 	MusicPlayer.prototype._fill = function (out) {
-		// The chip keeps running even with the music switched off: the AdLib sound
+		// The chip keeps running even with the music switched off: the FM sound
 		// effects live on the same chip, and they are not part of the music toggle.
 		var i;
 		if (!this.player && !this.sfx) {

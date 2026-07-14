@@ -35,7 +35,7 @@
 			say('Loaded ' + game.data.numWalls + ' wall textures, ' + game.data.numSprites +
 				' sprites, ' + levels.length + ' levels.' +
 				(game.data.vga ? ' Original status bar + face enabled.' : '') +
-				(game.music ? ' AdLib music available.' : ''));
+				(game.music ? ' Music and FM effects available.' : ''));
 		} catch (e) {
 			say('Could not parse data: ' + e.message, true);
 		}
@@ -52,7 +52,7 @@
 		VGAGRAPH: ['VGAGRAPH.WL6', 'vgagraph.wl6'],
 		VGAHEAD: ['VGAHEAD.WL6', 'vgahead.wl6'],
 		VGADICT: ['VGADICT.WL6', 'vgadict.wl6'],
-		// Only needed for the AdLib music.
+		// Only needed for the music and the FM sound effects.
 		AUDIOHED: ['AUDIOHED.WL6', 'audiohed.wl6'],
 		AUDIOT: ['AUDIOT.WL6', 'audiot.wl6']
 	};
@@ -94,7 +94,7 @@
 	loadFromServer();   // auto-load from the webroot on open
 
 	// --- Start / HUD ---
-	// --- Music (AdLib / OPL2) ---
+	// --- Music (OPL2 / FM synthesis) ---
 	// AUDIOHED + AUDIOT are optional; without them the checkbox stays off and disabled.
 	var MUSIC_KEY = 'uwolf.music';
 

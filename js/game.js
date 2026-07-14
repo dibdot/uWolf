@@ -28,34 +28,35 @@
 
 	// Collectible items (plane1 code -> effect), from GetBonus. `min`/`gib` gate
 	// whether the item is taken (health/ammo pickups are left if not useful).
-	// AdLib sound effects (indices into AUDIOT's AdLib table). These were never
+	// FM sound effects (indices into AUDIOT's effect table). These were never
 	// digitised — VSWAP has no pickup sounds at all — so before opl2.js there was
 	// nothing to play here but a synthesised stand-in.
-	var ADLIB = {
+	var FX = {
 		NOWAY: 6, PLAYERDEATH: 9, GETKEY: 12, GETMACHINE: 30, GETAMMO: 31,
 		HEALTH1: 33, HEALTH2: 34, BONUS1: 35, BONUS2: 36, BONUS3: 37,
 		GETGATLING: 38, BONUS1UP: 44, BONUS4: 45
 	};
 
 	var PICKUP = {
-		29: { health: 4, snd: ADLIB.HEALTH1 },                        // dog food
-		47: { health: 10, snd: ADLIB.HEALTH1 },                       // food
-		48: { health: 25, snd: ADLIB.HEALTH2 },                       // first aid
+		29: { health: 4, snd: FX.HEALTH1 },                        // dog food
+		47: { health: 10, snd: FX.HEALTH1 },                       // food
+		48: { health: 25, snd: FX.HEALTH2 },                       // first aid
 		57: { gib: 1 }, 61: { gib: 1 },                               // gibs (only when nearly dead)
-		49: { ammo: 8, snd: ADLIB.GETAMMO },                          // ammo clip
-		50: { weapon: 2, snd: ADLIB.GETMACHINE },                     // machine gun
-		51: { weapon: 3, snd: ADLIB.GETGATLING },                     // chain gun
-		52: { points: 100, treasure: 1, snd: ADLIB.BONUS1 },          // cross
-		53: { points: 500, treasure: 1, snd: ADLIB.BONUS2 },          // chalice
-		54: { points: 1000, treasure: 1, snd: ADLIB.BONUS3 },         // bible
-		55: { points: 5000, treasure: 1, snd: ADLIB.BONUS4 },         // crown
-		56: { fullheal: 1, snd: ADLIB.BONUS1UP },                     // one-up
-		43: { key: 0, snd: ADLIB.GETKEY }, 44: { key: 1, snd: ADLIB.GETKEY }
+		49: { ammo: 8, snd: FX.GETAMMO },                          // ammo clip
+		50: { weapon: 2, snd: FX.GETMACHINE },                     // machine gun
+		51: { weapon: 3, snd: FX.GETGATLING },                     // chain gun
+		52: { points: 100, treasure: 1, snd: FX.BONUS1 },          // cross
+		53: { points: 500, treasure: 1, snd: FX.BONUS2 },          // chalice
+		54: { points: 1000, treasure: 1, snd: FX.BONUS3 },         // bible
+		55: { points: 5000, treasure: 1, snd: FX.BONUS4 },         // crown
+		56: { fullheal: 1, snd: FX.BONUS1UP },                     // one-up
+		43: { key: 0, snd: FX.GETKEY }, 44: { key: 1, snd: FX.GETKEY }
 	};
 	// Plane codes for the "use" (Space) mechanic.
 	var PUSHABLE = 98, ELEVATOR = 21;   // PUSHABLETILE / ELEVATORTILE
 	var GOLD_KEY = 43;                  // bo_key1 — what Hans and Gretel drop
 	var EXITTILE = 99;                  // plane1: "at end of castle" — stepping on it wins
+	var AREATILE = 107, NUMAREAS = 37;  // plane0: floor tiles carry the room they belong to
 	var ALT_ELEVATOR = 107;             // plane0: stand here and use an elevator -> secret floor
 	// Where the secret floor spits you back out, per episode (ElevatorBackTo[]).
 	var ELEVATOR_BACK_TO = [1, 1, 7, 3, 5, 3];
@@ -99,7 +100,10 @@
 		this.running = false;
 		this.pushwall = null;      // active secret-wall slide
 		this._levelDone = 0;       // >0 = showing floor-stats screen
+		this._doneWait = 0;        // >0 = switch thrown, waiting for LEVELDONESND
 		this._episodeDone = false; // the stats screen is an EPISODE COMPLETE screen
+		this._deathCam = 0;        // >0 = watching a boss go down
+		this._bjRun = false;       // B.J.'s victory run is under way
 		this._levelDoneReady = false;
 		this._continueTap = false;
 		this._pendingLevel = 0;
@@ -212,7 +216,10 @@
 		this._levelIndex = index;
 		this.pushwall = null;
 		this._levelDone = 0;
+		this._doneWait = 0;
 		this._episodeDone = false;
+		this._deathCam = 0;
+		this._bjRun = false;
 		this.gs.keys = 0;      // keys are per-floor
 		this._lockMsg = 0;
 		this.doors.clear();
@@ -249,9 +256,23 @@
 			// Adolf steps out of Mecha Hitler's wreck mid-level: the renderer only got
 			// the actor list once, at startLevel, so a newcomer has to be added here.
 			onSpawn: function (actor) { self.rc.sprites.push(actor); },
+			// Projectiles are the only actors that ever disappear again.
+			onRemove: function (actor) {
+				var i = self.rc.sprites.indexOf(actor);
+				if (i >= 0) self.rc.sprites.splice(i, 1);
+			},
+			// FM-only effects (missiles, syringes, flames): they were never digitised.
+			fx: function (index) { if (self.music) self.music.playSfx(index); },
+			onDeathCam: function (boss) { self._startDeathCam(boss); },
 			// mapon == 9: the episode's secret floor. A_DeathScream has a 1-in-256
 			// surprise reserved for exactly that floor.
 			isSecretFloor: function () { return (self._levelIndex % EPISODE_FLOORS) === 9; },
+			// The area gate: is this actor's room currently connected to the player's?
+			areaAt: function (tx, ty) { return self._areaAt(tx, ty); },
+			areaByPlayer: function (area) {
+				if (area < 0) return true;              // a doorway belongs to no room
+				return !!self.areaByPlayer[area];
+			},
 			// Turn-arrow tiles (plane1 90..97 = ICONARROWS) that script patrol routes.
 			// Returns a dirtype 0..7 (east, NE, north, NW, west, SW, south, SE), or -1.
 			arrowAt: function (tx, ty) {
@@ -312,6 +333,7 @@
 		}
 		this.rc.setLevel(lvl, this.doors);
 		this.rc.sprites = sprites.concat(this.ai.actors);
+		this._buildAreas();
 		this._resize();
 		this.setShowMap(this.showMap);
 		// Each floor has its own track (songs[] in wl_play.cpp).
@@ -356,7 +378,7 @@
 		// The intermission is not part of the game world any more: in the original the
 		// play loop has already exited, so nobody keeps shooting at you while you read
 		// the floor stats.
-		if (this._levelDone > 0) return;
+		if (this._levelDone > 0 || this._doneWait > 0) return;
 		var p = this.player, gs = this.gs;
 
 		// decay flashes
@@ -466,10 +488,10 @@
 	Game.prototype._playerDied = function () {
 		var gs = this.gs;
 		gs.dead = true; gs.respawn = 1.8; gs.damageFlash = 1;
-		// PLAYERDEATHSND is an AdLib-only effect: it is not in wolfdigimap, which is why
+		// PLAYERDEATHSND is an FM-only effect: it is not in wolfdigimap, which is why
 		// there was nothing to play here before opl2.js existed. (We used to play digi
 		// chunk 18 by mistake — that is DIESND, Hitler shouting "Die!".)
-		this._sfx(ADLIB.PLAYERDEATH, null);
+		this._sfx(FX.PLAYERDEATH, null);
 	};
 
 	// ---- Pickups -----------------------------------------------------------
@@ -505,10 +527,10 @@
 		return true;
 	};
 
-	// Play an AdLib effect if we have AUDIOT, otherwise fall back to the synthesised
-	// stand-in. `adlib` is an index into AUDIOT's AdLib sound table.
-	Game.prototype._sfx = function (adlib, fallback) {
-		if (this.music && adlib != null && this.music.playSfx(adlib)) return;
+	// Play an FM effect if we have AUDIOT, otherwise fall back to the synthesised
+	// stand-in. `fx` is an index into AUDIOT's sound-effect table.
+	Game.prototype._sfx = function (fx, fallback) {
+		if (this.music && fx != null && this.music.playSfx(fx)) return;
 		if (this.sound && this.sound.sfx && fallback) this.sound.sfx(fallback);
 	};
 
@@ -556,6 +578,87 @@
 
 	// ---- Doors -------------------------------------------------------------
 
+	// ---- Areas ---------------------------------------------------------------
+	// The original does not do line-of-sight or noise propagation by hand: every floor
+	// tile carries the number of the room it belongs to (plane0 >= AREATILE), each door
+	// joins two of them, and `areaconnect` counts the OPEN doors between any pair. From
+	// the player's room a recursive flood then marks every room currently reachable
+	// through open doors — and an actor in a room that is NOT marked is deaf and blind
+	// to you, no matter how close he is. Doors connect the moment they *start* opening
+	// and disconnect only once they are shut all the way, which is why firing just after
+	// walking through a door still wakes the room behind it.
+	Game.prototype._buildAreas = function () {
+		var lvl = this.level, w = lvl.width, h = lvl.height;
+		this.areaOf = new Int8Array(w * h);
+		for (var i = 0; i < w * h; i++) {
+			var t = lvl.plane0[i];
+			this.areaOf[i] = (t >= AREATILE && t < AREATILE + NUMAREAS) ? (t - AREATILE) : -1;
+		}
+
+		// Which two rooms each door joins.
+		var self = this;
+		this.doors.forEach(function (d, key) {
+			var x = key % w, y = (key / w) | 0;
+			if (RC.helpers.doorVertical(d.tile)) {          // slab runs N-S: rooms east/west
+				d.a1 = self._areaAt(x + 1, y);
+				d.a2 = self._areaAt(x - 1, y);
+			} else {                                        // rooms north/south
+				d.a1 = self._areaAt(x, y - 1);
+				d.a2 = self._areaAt(x, y + 1);
+			}
+			d.linked = false;
+		});
+
+		this.areaConnect = new Uint8Array(NUMAREAS * NUMAREAS);
+		this.areaByPlayer = new Uint8Array(NUMAREAS);
+		this._playerArea = this._areaAt(this.player.x | 0, this.player.y | 0);
+		this._connectAreas();
+	};
+
+	Game.prototype._areaAt = function (tx, ty) {
+		if (!this.areaOf || tx < 0 || ty < 0 || tx >= this.level.width || ty >= this.level.height) return -1;
+		return this.areaOf[ty * this.level.width + tx];
+	};
+
+	// RecursiveConnect: flood out from the player's room through every open door.
+	Game.prototype._connectAreas = function () {
+		var seen = this.areaByPlayer;
+		seen.fill(0);
+		var start = this._playerArea;
+		if (start < 0) return;                              // standing in a doorway: keep quiet
+		seen[start] = 1;
+		var stack = [start];
+		while (stack.length) {
+			var a = stack.pop();
+			for (var b = 0; b < NUMAREAS; b++) {
+				if (this.areaConnect[a * NUMAREAS + b] && !seen[b]) {
+					seen[b] = 1;
+					stack.push(b);
+				}
+			}
+		}
+	};
+
+	// A door joins its two rooms while it is anything other than fully shut.
+	Game.prototype._linkDoor = function (d, on) {
+		if (!!d.linked === !!on) return;
+		if (d.a1 == null || d.a1 < 0 || d.a2 == null || d.a2 < 0) { d.linked = !!on; return; }
+		var step = on ? 1 : -1;
+		this.areaConnect[d.a1 * NUMAREAS + d.a2] += step;
+		this.areaConnect[d.a2 * NUMAREAS + d.a1] += step;
+		d.linked = !!on;
+		this._connectAreas();
+	};
+
+	// The player's own room, tracked as he walks. A doorway itself belongs to no room,
+	// so we keep the last one he was properly in.
+	Game.prototype._updatePlayerArea = function () {
+		var a = this._areaAt(this.player.x | 0, this.player.y | 0);
+		if (a < 0 || a === this._playerArea) return;
+		this._playerArea = a;
+		this._connectAreas();
+	};
+
 	// Play a positional sound effect attenuated by distance to the player.
 	Game.prototype._sfxAt = function (cx, cy, idx, base) {
 		if (!this.sound || !DIGI || idx == null) return;
@@ -588,11 +691,12 @@
 	Game.prototype._openDoor = function (d, announce) {
 		if (!d) return;
 		if (d.lock >= 1 && d.lock <= 4 && !(this._effKeys() & (1 << (d.lock - 1)))) {
-			if (announce) { this._lockMsg = 1.4; this._sfx(ADLIB.NOWAY, 'locked'); }   // locked: needs the matching key
+			if (announce) { this._lockMsg = 1.4; this._sfx(FX.NOWAY, 'locked'); }   // locked: needs the matching key
 			return;
 		}
 		if (d.state === 'closed' || d.state === 'closing') {
 			d.state = 'opening';
+			this._linkDoor(d, true);   // "just starting to open, so connect the areas"
 			this._sfxAt(d.cx, d.cy, DIGI.OPENDOOR, 0.85);
 		}
 	};
@@ -634,6 +738,30 @@
 		this._completeFloor(under === ALT_ELEVATOR ? 'secret' : 'floor');
 	};
 
+	// A_StartDeathCam. The camera jumps to where you were standing when you landed the
+	// killing blow, turns to face the boss, and then backs away along that line until it
+	// is no longer inside a wall — so you get a clean view of him going down. Control is
+	// frozen; the floor ends when his death animation finishes.
+	Game.prototype._startDeathCam = function (boss) {
+		if (this._deathCam > 0) return;
+		var p = this.player;
+		var ang = Math.atan2(boss.y - p.y, boss.x - p.x);   // from the kill spot, toward him
+		var dx = Math.cos(ang), dy = Math.sin(ang);
+
+		var dist = 1.25, cx = p.x, cy = p.y;                // 0x14000
+		for (var i = 0; i < 96; i++) {
+			var tx = boss.x - dx * dist, ty = boss.y - dy * dist;
+			if (this._solid(tx, ty)) break;                 // gone too far: keep the last good spot
+			cx = tx; cy = ty;
+			dist += 0.0625;                                 // 0x1000
+		}
+		p.x = cx; p.y = cy;
+		this.setAngle(ang);
+		// Long enough to cover the replay: a beat on the freeze-frame (100 tics) plus his
+		// death animation all over again.
+		this._deathCam = 2.6;
+	};
+
 	// Walking onto the exit tile ends the episode. This is how the Hans and Gretel
 	// floors finish (they have no death-cam): kill the boss, take his gold key, unlock
 	// the door and step out of the castle — VictoryTile() spawns the BJ victory run,
@@ -642,9 +770,11 @@
 		if (this._levelDone || !this.level) return;
 		var lvl = this.level;
 		var t1 = lvl.plane1[(this.player.y | 0) * lvl.width + (this.player.x | 0)];
-		if (t1 !== EXITTILE) return;
-		if (this.sound && DIGI) this.sound.play(DIGI.YEAH, 1);   // "Yeah!"
-		this._completeFloor('victory');
+		if (t1 !== EXITTILE || this._bjRun) return;
+		// VictoryTile(): B.J. himself runs out of the castle and jumps. The floor is won
+		// when he lands (T_BJDone) — the yell comes from him, not from us.
+		this._bjRun = true;
+		if (this.ai) this.ai.spawnBJ(this.player.x, this.player.y);
 	};
 
 	// Where to go next. Floors are grouped per episode (10 each: 8 normal, then the
@@ -656,7 +786,7 @@
 	//               Pac-Man secret level.)
 	// Leaving the secret floor returns you to ElevatorBackTo[episode].
 	Game.prototype._completeFloor = function (mode) {
-		if (this._levelDone) return;
+		if (this._levelDone || this._doneWait > 0) return;
 		var count = this.data.levels.length;
 		var ep = (this._levelIndex / EPISODE_FLOORS) | 0;
 		var floor = this._levelIndex % EPISODE_FLOORS;
@@ -672,9 +802,26 @@
 			next = ep * EPISODE_FLOORS + floor + 1;
 		}
 
-		if (this.sound && DIGI) this.sound.play(DIGI.LEVELDONE, 0.9);
 		this._pendingLevel = next % count;
 		this._episodeDone = (mode === 'victory');
+
+		// The elevator — and ONLY the elevator — plays LEVELDONESND, and Cmd_Use then
+		// calls SD_WaitSoundDone(): the game sits frozen with the switch thrown until
+		// the sound has played out, and only then does the intermission come up. The
+		// boss and exit-tile endings have their own business and play nothing here.
+		if (mode === 'floor' || mode === 'secret') {
+			var wait = 0;
+			if (this.sound && DIGI) {
+				this.sound.play(DIGI.LEVELDONE, 0.9);
+				wait = this.sound.duration(DIGI.LEVELDONE);
+			}
+			if (wait > 0) { this._doneWait = wait; return; }   // hold, world frozen
+		}
+		this._showStats();
+	};
+
+	Game.prototype._showStats = function () {
+		this._doneWait = 0;
 		this._levelDone = 1;             // show the floor-stats screen
 		this._levelDoneReady = false;    // require the "use" key to be released first
 	};
@@ -758,7 +905,10 @@
 				}
 			} else if (d.state === 'closing') {
 				d.open -= dt / self.doorOpenTime;
-				if (d.open <= 0) { d.open = 0; d.state = 'closed'; }
+				if (d.open <= 0) {
+					d.open = 0; d.state = 'closed';
+					self._linkDoor(d, false);   // "closed all the way, so disconnect the areas"
+				}
 			}
 		});
 	};
@@ -818,7 +968,7 @@
 
 	Game.prototype._frame = function (dt) {
 		var p = this.player, k = this.keys, gs = this.gs;
-		var frozen = gs.dead || this._levelDone > 0;
+		var frozen = gs.dead || this._levelDone > 0 || this._doneWait > 0 || this._deathCam > 0 || this._bjRun;
 
 		// Out of lives: hold the GAME OVER screen until the player acknowledges.
 		if (gs.gameOver) {
@@ -879,10 +1029,16 @@
 		this._checkExit();
 		if (this._lockMsg > 0) this._lockMsg -= dt;
 
+		if (this._doneWait > 0) {
+			this._doneWait -= dt;
+			if (this._doneWait <= 0) this._showStats();
+		}
+		this._updatePlayerArea();
 		this._updateDoors(dt);
 		this._updatePushwall(dt);
 		this._updateCombat(dt);
 		if (this._toast && this._toast.t > 0) this._toast.t -= dt;
+		if (this._deathCam > 0) this._deathCam = Math.max(0, this._deathCam - dt);
 		this.rc.pushwall = this.pushwall;
 		this.rc.render(p);
 		this._drawHUD();
@@ -968,6 +1124,17 @@
 			ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 			ctx.fillStyle = '#fff'; ctx.font = 'bold ' + Math.max(16, H * 0.09) + 'px monospace';
 			ctx.fillText('DEAD', cx, (H - barH) / 2); ctx.restore();
+		}
+
+		// The original fades out and prints this before replaying the kill; we keep the
+		// line, since it is half the charm of the death cam.
+		if (this._deathCam > 0) {
+			ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+			ctx.globalAlpha = Math.min(1, this._deathCam);
+			ctx.fillStyle = '#ffd24a';
+			ctx.font = 'bold ' + Math.max(13, H * 0.05) + 'px monospace';
+			ctx.fillText("LET'S SEE THAT AGAIN!", W / 2, H * 0.16);
+			ctx.restore();
 		}
 
 		// Toast (save/load feedback, error reports) — shown even while dead.
@@ -1283,7 +1450,10 @@
 		this.pushwall = st.pushwall || null;
 		if (st.stats) this._stats = st.stats;
 		this._levelDone = 0;
+		this._doneWait = 0;
 		this._episodeDone = false;
+		this._deathCam = 0;
+		this._bjRun = false;
 		return true;
 	};
 

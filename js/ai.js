@@ -99,19 +99,85 @@
 	//
 	// hp is starthitpoints[difficulty]; note that Schabbs (2400 on hard!) and Fake
 	// Hitler (500) are nowhere near the rest.
+	// Projectiles (T_Projectile). Speeds are the raw global units/tic from the source;
+	// damage is rolled from the same 0..255 counter the rest of the game uses.
+	//   PROJECTILESIZE 0xC000 = 0.75 tiles — how close it has to get to hurt you
+	//   PROJSIZE       0x2000 = 0.125     — its own half-width, for hitting walls
+	var HIT_RADIUS = 0.75, PROJ_HALF = 0.125;
+
+	// B.J.'s victory run: he spawns where you are standing, runs six tiles (following
+	// the map's turn arrows, like a patrolling guard would), then jumps — and on the
+	// second jump frame he says the only word he ever says.
+	var BJ = { W: 408, JUMP: 412, run: spd(2048), jump: spd(680), tiles: 6 };
+
+	function bjStates() {
+		if (bjStates._s) return bjStates._s;
+		function st(spr, tics, think, action) {
+			return { rot: false, spr: spr, tics: tics, think: think, action: action, next: null };
+		}
+		var W = BJ.W, J = BJ.JUMP;
+		var r1 = st(W, 12, 'bjrun', null), r1s = st(W, 3, null, null);
+		var r2 = st(W + 1, 8, 'bjrun', null);
+		var r3 = st(W + 2, 12, 'bjrun', null), r3s = st(W + 2, 3, null, null);
+		var r4 = st(W + 3, 8, 'bjrun', null);
+		r1.next = r1s; r1s.next = r2; r2.next = r3; r3.next = r3s; r3s.next = r4; r4.next = r1;
+
+		var j1 = st(J, 14, 'bjjump', null);
+		var j2 = st(J + 1, 14, 'bjjump', 'bjyell');     // "Yeah!"
+		var j3 = st(J + 2, 14, 'bjjump', null);
+		var j4 = st(J + 3, 300, null, 'bjdone');        // hold, then the episode is over
+		j1.next = j2; j2.next = j3; j3.next = j4; j4.next = j4;
+
+		bjStates._s = { run1: r1, jump1: j1 };
+		return bjStates._s;
+	}
+
+	var PROJ = {
+		// Schabbs' syringe: four frames, no rotation, and it stings.
+		needle: {
+			frames: [317, 318, 319, 320], tics: 6, rot: false,
+			speed: spd(0x2000), dmg: function (r) { return (r >> 3) + 20; },
+			launch: 8                                     // SCHABBSTHROWSND
+		},
+		// Giftmacher's and Fat Face's rocket: rotates to face you, explodes on a wall.
+		rocket: {
+			frames: [370], tics: 3, rot: true,
+			speed: spd(0x2000), dmg: function (r) { return (r >> 3) + 30; },
+			launch: 85, impact: 86,                       // MISSILEFIRESND / MISSILEHITSND
+			boom: [382, 383, 384], boomTics: 6
+		},
+		// Fake Hitler's fireball: slower, and weak on its own — he throws eight of them.
+		fire: {
+			frames: [326, 327], tics: 6, rot: false,
+			speed: spd(0x1200), dmg: function (r) { return r >> 3; },
+			launch: 69                                    // FLAMETHROWERSND
+		}
+	};
+
 	var BOSS = {
 		hans:    { W: 296, SHOOT1: 300, DIE1: 304, dieN: 3, DEAD: 303, sight: DIGI.GUTENTAG,
 			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.MUTTI, end: 'key' },
 		gretel:  { W: 385, SHOOT1: 389, DIE1: 393, dieN: 3, DEAD: 392, sight: DIGI.KEIN,
 			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.MEIN, end: 'key' },
 		gift:    { W: 360, SHOOT1: 364, DIE1: 366, dieN: 3, DEAD: 369, sight: DIGI.EINE,
-			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.DONNER, end: 'victory' },
+			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.DONNER, end: 'victory',
+			// wind up, then launch a rocket
+			SHOOT: [[364, 30, 0], [365, 10, 'rocket']] },
 		fat:     { W: 396, SHOOT1: 400, DIE1: 404, dieN: 3, DEAD: 407, sight: DIGI.ERLAUBEN,
-			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.ROSE, end: 'victory' },
+			hp: [850, 950, 1050, 1200], pts: 5000, death: DIGI.ROSE, end: 'victory',
+			// a rocket first, then four bursts from the chainguns
+			SHOOT: [[400, 30, 0], [401, 10, 'rocket'], [402, 10, 1], [403, 10, 1],
+				[402, 10, 1], [403, 10, 1]] },
 		schabbs: { W: 307, SHOOT1: 311, DIE1: 313, dieN: 3, DEAD: 316, sight: DIGI.SCHABBSHA,
-			hp: [850, 950, 1550, 2400], pts: 5000, death: DIGI.MEINGOTT, end: 'victory' },
+			hp: [850, 950, 1550, 2400], pts: 5000, death: DIGI.MEINGOTT, end: 'victory',
+			// wind up, then throw a syringe
+			SHOOT: [[311, 30, 0], [312, 10, 'needle']] },
 		fake:    { W: 321, SHOOT1: 325, DIE1: 328, dieN: 5, DEAD: 333, sight: DIGI.TOTHUND,
-			hp: [200, 300, 400, 500], pts: 2000, death: DIGI.HITLERHA, end: null },
+			hp: [200, 300, 400, 500], pts: 2000, death: DIGI.HITLERHA, end: null,
+			// eight fireballs in a row — individually weak, together lethal
+			SHOOT: [[325, 8, 'fire'], [325, 8, 'fire'], [325, 8, 'fire'], [325, 8, 'fire'],
+				[325, 8, 'fire'], [325, 8, 'fire'], [325, 8, 'fire'], [325, 8, 'fire'],
+				[325, 8, 0]] },
 		mecha:   { W: 334, SHOOT1: 338, DIE1: 342, dieN: 3, DEAD: 341, sight: DIGI.DIE,
 			hp: [800, 950, 1050, 1200], pts: 5000, death: DIGI.SCHEIST,
 			end: 'morph', morphTo: 'hitler' },
@@ -192,7 +258,10 @@
 			var prev = null, first = null;
 			for (var k = 0; k < cfg.SHOOT.length; k++) {
 				var f = cfg.SHOOT[k];
-				var s = st(false, f[0], f[1], null, f[2] ? 'shoot' : null);
+				// f[2]: 0 = nothing, 1 = fire bullets (T_Shoot), or the name of a
+				// projectile to throw ('needle', 'rocket', 'fire').
+				var act = f[2] ? (f[2] === 1 ? 'shoot' : 'throw:' + f[2]) : null;
+				var s = st(false, f[0], f[1], null, act);
 				if (prev) prev.next = s; else first = s;
 				prev = s;
 			}
@@ -240,54 +309,11 @@
 		this.actors = [];
 		this.occ = new Map();    // tileKey -> actor (blocking)
 		this.tics = 0;
-		this.noise = { t: 0, tiles: null }; // last gunfire: reachable tiles + seconds
+		this.noise = { t: 0 };             // madenoise: seconds left on the last gunshot
 	}
 
-	WolfAI.prototype.reset = function () { this.actors = []; this.occ.clear(); this.noise.t = 0; this.noise.tiles = null; };
+	WolfAI.prototype.reset = function () { this.actors = []; this.occ.clear(); this.noise.t = 0; };
 
-	// Flood-fill floor tiles reachable from (sx,sy) WITHOUT crossing any door,
-	// adding them to `seen`. If `collect`, also return the open-door tiles bordering
-	// this region (as a flat [x,y,x,y,...] list). Used to build the noise area.
-	WolfAI.prototype._floodRoomFloor = function (sx, sy, seen, collect) {
-		var env = this.env, W = env.width, H = env.height;
-		var DX = [1, -1, 0, 0], DY = [0, 0, 1, -1];
-		var q = [sx, sy], head = 0, doors = collect ? [] : null;
-		while (head < q.length) {
-			var cx = q[head++], cy = q[head++];
-			for (var i = 0; i < 4; i++) {
-				var nx = cx + DX[i], ny = cy + DY[i];
-				if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-				if (env.isWall(nx, ny)) continue;
-				var dr = env.doorInfo(nx, ny);
-				if (dr) { if (collect && dr.open >= 0.5) doors.push(nx, ny); continue; } // never cross a door here
-				var k = ny * W + nx;
-				if (seen.has(k)) continue;
-				seen.add(k); q.push(nx, ny);
-			}
-		}
-		return doors;
-	};
-
-	// Tiles that hear a shot from (sx,sy): the player's room plus every room ONE
-	// open door away (closed doors and walls block; a second door is not crossed).
-	// Mirrors the original's area connectivity, kept to a single hop.
-	WolfAI.prototype._floodNoise = function (sx, sy) {
-		var W = this.env.width;
-		var seen = new Set([sy * W + sx]);
-		var doors = this._floodRoomFloor(sx, sy, seen, true);   // current room + its open doors
-		for (var i = 0; i < doors.length; i += 2) {
-			var dx = doors[i], dy = doors[i + 1], dk = dy * W + dx;
-			if (seen.has(dk)) continue;
-			seen.add(dk);                                         // the doorway itself is heard
-			this._floodRoomFloor(dx, dy, seen, false);            // the adjacent room only (no further doors)
-		}
-		return seen;
-	};
-
-	WolfAI.prototype.hearsNoise = function (a) {
-		return this.noise.t > 0 && this.noise.tiles != null &&
-			this.noise.tiles.has(a.tiley * this.env.width + a.tilex);
-	};
 	WolfAI.prototype._key = function (tx, ty) { return ty * this.env.width + tx; };
 	WolfAI.prototype.occAt = function (tx, ty) { return this.occ.get(this._key(tx, ty)) || null; };
 
@@ -350,9 +376,16 @@
 			if (a.temp2 > 0) return false;
 			a.temp2 = 0;
 		} else {
+			// The area gate, straight from SightPlayer: an actor whose room is not
+			// currently connected to the player's — through doors that are anything but
+			// fully shut — neither hears him nor sees him, however close he is. This is
+			// the whole of Wolfenstein's "alerting" model; there is no distance term and
+			// no hand-rolled sound propagation anywhere in the original.
+			if (env.areaByPlayer && !env.areaByPlayer(env.areaAt(a.tilex, a.tiley))) return false;
+
 			var los = this.checkLine(a.x, a.y, env.player.x, env.player.y);
 			if (a.flags.ambush) { if (!los) return false; a.flags.ambush = false; }
-			else if (!this.hearsNoise(a) && !los) return false;
+			else if (this.noise.t <= 0 && !los) return false;
 			// reaction delay (tics), by class
 			var r = env.rnd();
 			switch (a.cls) {
@@ -481,14 +514,33 @@
 			case 'path': this.tPath(a); break;
 			case 'chase': this.tChase(a, false); break;
 			case 'dogchase': this.tChase(a, true); break;
+			case 'bjrun': this.tBJRun(a); break;
+			case 'bjjump': this.tBJJump(a); break;
 		}
 	};
 	WolfAI.prototype.action = function (a, key) {
+		if (key && key.indexOf('throw:') === 0) { this.throwProjectile(a, key.slice(6)); return; }
 		switch (key) {
 			case 'shoot': this.tShoot(a); break;
 			case 'bite': this.tBite(a); break;
 			case 'scream': this.deathScream(a); break;
+			case 'bjyell': this.playAt(DIGI.YEAH, a); break;
+			case 'bjdone':
+				if (!a.victoryFired) { a.victoryFired = true; this.env.onVictory && this.env.onVictory(); }
+				break;
 			case 'victory':
+				// A_StartDeathCam runs at the END of the death animation, and it runs
+				// TWICE. The first time it swings the camera round and makes him die
+				// again, for the camera ("LET'S SEE THAT AGAIN!"). Only when that replay
+				// finishes does it set ex_victorious. Getting this wrong is why the
+				// stats used to appear the moment he hit the floor.
+				if (!a.replayed) {
+					a.replayed = true;
+					if (this.env.onDeathCam) this.env.onDeathCam(a);
+					a.jumpTo = a.S.die1;                       // rewind: he falls again
+					a.jumpTics = a.S.die1.tics + 100;          // after a beat on the freeze-frame
+					return;
+				}
 				// The dead state loops, so guard: the floor may only be won once.
 				if (!a.victoryFired) { a.victoryFired = true; this.env.onVictory && this.env.onVictory(); }
 				break;
@@ -676,12 +728,30 @@
 		return n;
 	};
 
+	// B.J. has no business in the occupancy grid and never turns to face you.
+	WolfAI.prototype._doBJ = function (a) {
+		if (a.ticcount === 0) {
+			if (a.state.think) this.think(a, a.state.think);
+		} else {
+			a.ticcount -= this.tics;
+			var guard = 0;
+			while (a.ticcount <= 0 && guard++ < 32) {
+				if (a.state.action) this.action(a, a.state.action);
+				a.state = a.state.next;
+				if (a.state.tics === 0) { a.ticcount = 0; break; }
+				a.ticcount += a.state.tics;
+			}
+			if (a.ticcount > 0 && a.state.think) this.think(a, a.state.think);
+		}
+		a.sprite = a.state.spr;
+	};
+
 	// --- DoActor driver ---------------------------------------------------
 	WolfAI.prototype.doActor = function (a) {
 		var env = this.env;
 		if (!a.flags.active && !a.flags.dead) {
 			// dormant until it can see the player or hears gunfire
-			if (this.checkLine(a.x, a.y, env.player.x, env.player.y) || this.hearsNoise(a)) a.flags.active = true;
+			if (this.checkLine(a.x, a.y, env.player.x, env.player.y) || this.noise.t > 0) a.flags.active = true;
 		}
 		// Vacate our own mark before thinking (we may step to another tile).
 		var oldKey = this._key(a.tilex, a.tiley);
@@ -694,6 +764,12 @@
 			var guard = 0;
 			while (a.ticcount <= 0 && guard++ < 32) {
 				if (a.state.action) this.action(a, a.state.action);
+				// An action may redirect the state (the death cam rewinds the boss to the
+				// start of his death). Without this the very next line would overwrite it.
+				if (a.jumpTo) {
+					a.state = a.jumpTo; a.ticcount = a.jumpTics; a.jumpTo = null;
+					break;
+				}
 				a.state = a.state.next;
 				if (a.state.tics === 0) { a.ticcount = 0; break; }
 				a.ticcount += a.state.tics;
@@ -724,7 +800,27 @@
 		this._dt = dt;
 		this.tics = dt * TICS;
 		if (this.noise.t > 0) this.noise.t = Math.max(0, this.noise.t - dt);
-		for (var i = 0; i < this.actors.length; i++) this.doActor(this.actors[i]);
+
+		var i, a, spent = false;
+		for (i = 0; i < this.actors.length; i++) {
+			a = this.actors[i];
+			if (a.proj) { this._doProjectile(a); if (a.remove) spent = true; }
+			else if (a.bj) this._doBJ(a);
+			else this.doActor(a);
+		}
+
+		// Projectiles are the only actors that ever leave: sweep the spent ones out of
+		// both the actor list and the renderer, or a long boss fight would pile them up
+		// forever.
+		if (spent) {
+			var keep = [];
+			for (i = 0; i < this.actors.length; i++) {
+				a = this.actors[i];
+				if (a.remove) { if (this.env.onRemove) this.env.onRemove(a); }
+				else keep.push(a);
+			}
+			this.actors = keep;
+		}
 	};
 
 	// --- Player weapons (GunAttack / KnifeAttack) -------------------------
@@ -732,10 +828,9 @@
 	// then applies the original distance-based damage. `kind` is 'knife', 'gun'.
 	WolfAI.prototype.playerFire = function (kind) {
 		var env = this.env, p = env.player;
-		if (kind !== 'knife') {
-			this.noise.t = 0.5;
-			this.noise.tiles = this._floodNoise(p.x | 0, p.y | 0); // heard in the connected area
-		}
+		// madenoise: a plain flag in the original. WHERE it is heard is decided entirely
+		// by the area system, not by any distance or flood of our own.
+		if (kind !== 'knife') this.noise.t = 0.5;
 		// pick target: smallest angle to player's facing, must have LOS
 		var best = null, bestDot = Math.cos(0.09), bestDist = Infinity;
 		for (var i = 0; i < this.actors.length; i++) {
@@ -760,6 +855,164 @@
 		return true;
 	};
 
+	// ---- B.J.'s victory run ---------------------------------------------------
+	// SpawnBJVictory: he appears where you are standing, heads north, and runs six
+	// tiles — following the map's turn arrows exactly as a patrolling guard would —
+	// before jumping.
+	WolfAI.prototype.spawnBJ = function (x, y) {
+		var S = bjStates();
+		var a = {
+			cls: 'bj', bj: true, cfg: { DEAD: BJ.W },
+			x: x, y: y, tilex: x | 0, tiley: y | 0,
+			dir: 2,                                   // north
+			distance: 0, left: BJ.tiles,
+			state: S.run1, ticcount: S.run1.tics,
+			sprite: BJ.W,
+			flags: { dead: false, shootable: false, visible: false, attackmode: false, active: true, ambush: false, hidden: false },
+			S: S, remove: false
+		};
+		this.actors.push(a);
+		if (this.env.onSpawn) this.env.onSpawn(a);
+		return a;
+	};
+
+	WolfAI.prototype.tBJRun = function (a) {
+		if (a.dir === NODIR) this.selectPathDir(a);
+		if (a.dir === NODIR) { this._bjJump(a); return; }
+
+		var move = BJ.run * this._dt, guard = 0;
+		while (move > 0 && guard++ < 8) {
+			if (a.distance <= 0) a.distance = 1;
+			if (move < a.distance) {
+				var v = DIRVEC[a.dir];
+				a.x += v[0] * move; a.y += v[1] * move;
+				a.tilex = a.x | 0; a.tiley = a.y | 0;
+				a.distance -= move;
+				break;
+			}
+			this._snap(a);
+			move -= a.distance;
+			a.distance = 0;
+			this.selectPathDir(a);
+			if (--a.left <= 0 || a.dir === NODIR) { this._bjJump(a); return; }
+		}
+	};
+
+	WolfAI.prototype._bjJump = function (a) {
+		a.state = a.S.jump1;
+		a.ticcount = a.state.tics;
+	};
+
+	WolfAI.prototype.tBJJump = function (a) {
+		if (a.dir === NODIR) return;
+		var v = DIRVEC[a.dir], move = BJ.jump * this._dt;
+		a.x += v[0] * move; a.y += v[1] * move;
+		a.tilex = a.x | 0; a.tiley = a.y | 0;
+	};
+
+	// ---- Projectiles ---------------------------------------------------------
+	// T_SchabbThrow / T_GiftThrow / T_FakeFire all do the same thing: aim at where the
+	// player is *right now* and launch. The shot does not track you afterwards — it
+	// flies straight, so sidestepping is a real defence.
+	WolfAI.prototype.throwProjectile = function (from, kind) {
+		var cfg = PROJ[kind];
+		if (!cfg) return null;
+		var p = this.env.player;
+		var ang = Math.atan2(p.y - from.y, p.x - from.x);
+
+		var pr = {
+			cls: 'proj', kind: kind, cfg: cfg, proj: true,
+			x: from.x, y: from.y,
+			tilex: from.x | 0, tiley: from.y | 0,
+			vx: Math.cos(ang), vy: Math.sin(ang),
+			frame: 0, frameT: 0,
+			boomAt: -1,                       // >= 0 while the explosion plays out
+			sprite: cfg.frames[0],
+			flags: { dead: false, shootable: false, visible: false, attackmode: false, active: true, ambush: false, hidden: false },
+			remove: false
+		};
+		this.actors.push(pr);
+		if (cfg.launch != null && this.env.fx) this.env.fx(cfg.launch);
+		if (this.env.onSpawn) this.env.onSpawn(pr);
+		return pr;
+	};
+
+	// One frame of a projectile: fly, hit a wall, or hit the player.
+	WolfAI.prototype._doProjectile = function (pr) {
+		var cfg = pr.cfg, env = this.env, dt = this._dt;
+
+		// An exploding rocket just plays out its animation where it stopped.
+		if (pr.boomAt >= 0) {
+			pr.frameT += dt * TICS;
+			if (pr.frameT >= cfg.boomTics) {
+				pr.frameT = 0;
+				if (++pr.boomAt >= cfg.boom.length) { pr.remove = true; return; }
+			}
+			pr.sprite = cfg.boom[pr.boomAt];
+			return;
+		}
+
+		// animate
+		pr.frameT += dt * TICS;
+		if (pr.frameT >= cfg.tics) {
+			pr.frameT = 0;
+			pr.frame = (pr.frame + 1) % cfg.frames.length;
+		}
+
+		var step = cfg.speed * dt;
+		pr.x += pr.vx * step;
+		pr.y += pr.vy * step;
+		pr.tilex = pr.x | 0; pr.tiley = pr.y | 0;
+
+		// A wall (or a shut door) stops it. ProjectileTryMove checks the corners of the
+		// projectile's own little box, not just its centre.
+		if (this._projBlocked(pr)) {
+			if (cfg.boom) {
+				pr.boomAt = 0; pr.frameT = 0;
+				pr.sprite = cfg.boom[0];
+				if (cfg.impact != null && env.fx) env.fx(cfg.impact);
+			} else {
+				pr.remove = true;
+			}
+			return;
+		}
+
+		// Close enough to the player? PROJECTILESIZE is 0.75 of a tile, per axis.
+		var p = env.player;
+		if (Math.abs(pr.x - p.x) < HIT_RADIUS && Math.abs(pr.y - p.y) < HIT_RADIUS) {
+			env.hurtPlayer(cfg.dmg(env.rnd()), pr);
+			pr.remove = true;
+			return;
+		}
+
+		// The rocket sprite turns to face you as it flies.
+		pr.sprite = cfg.rot
+			? cfg.frames[0] + E.rotFrame(this._projDir(pr), pr.x, pr.y, p.x, p.y)
+			: cfg.frames[pr.frame];
+	};
+
+	WolfAI.prototype._projBlocked = function (pr) {
+		var env = this.env;
+		for (var dy = -1; dy <= 1; dy += 2) {
+			for (var dx = -1; dx <= 1; dx += 2) {
+				var tx = (pr.x + dx * PROJ_HALF) | 0, ty = (pr.y + dy * PROJ_HALF) | 0;
+				if (tx < 0 || ty < 0 || tx >= env.width || ty >= env.height) return true;
+				if (env.isWall(tx, ty)) return true;
+				var dr = env.doorInfo(tx, ty);
+				if (dr && dr.open < 0.5) return true;
+				if (env.blocked && env.blocked(tx, ty)) return true;
+			}
+		}
+		return false;
+	};
+
+	// Which of the eight rotation frames the rocket shows: its heading, as a dirtype.
+	WolfAI.prototype._projDir = function (pr) {
+		var a = Math.atan2(-pr.vy, pr.vx);              // screen y grows downward
+		var d = Math.round(a / (Math.PI / 4));
+		return ((d % 8) + 8) % 8;
+	};
+
 	// Positional sound: attenuate by distance to the player.
 	WolfAI.prototype.playAt = function (idx, a) {
 		if (idx == null || idx < 0 || !this.env.sound) return;
@@ -781,6 +1034,9 @@
 		var out = [];
 		for (var i = 0; i < this.actors.length; i++) {
 			var a = this.actors[i], f = a.flags;
+			// Projectiles are transient and, crucially, they would shift every actor
+			// index behind them — the save maps actors by position.
+			if (a.proj || a.bj) continue;
 			out.push({
 				x: +a.x.toFixed(3), y: +a.y.toFixed(3), d: a.dir, hp: a.hp,
 				dd: f.dead ? 1 : 0, am: f.attackmode ? 1 : 0,

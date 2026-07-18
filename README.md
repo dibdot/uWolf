@@ -21,7 +21,7 @@ extension instead of `.WL6`; both sets can sit side by side and the menu lets
 you choose (see the Spear of Destiny section).
 
 Don't own a copy? Wolfenstein 3D can be bought (around €4.99) e.g. on GOG:
-<https://www.gog.com/en/game/wolfenstein_3d> — the `.WL6` adn `.SOD` data files are in the
+<https://www.gog.com/en/game/wolfenstein_3d> — the `.WL6` and `.SOD` data files are in the
 installed game folder.
 
 Required (the game will not start without all three):

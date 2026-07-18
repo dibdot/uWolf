@@ -19,12 +19,17 @@
 	// sprite pages starting at SPR_STAT_0. This renders decor and pickups; a few
 	// special items may be a page off, which is harmless for an explorer.
 	var STAT_FIRST = 23, STAT_LAST = 74, SPR_STAT_0 = 2;
-	// Static decorations that block movement (from WL6 statinfo[].block): barrels,
+	// Static decorations that block movement (from statinfo[].block): barrels,
 	// tables, pillars, armour/knight, cages, wells, stove, etc. Bullets and sight
-	// pass over them (the original blocks via actorat, not the wall map).
+	// pass over them (the original blocks via actorat, not the wall map). The set
+	// is dataset-dependent — see the WolfVariant hook below — so it is rebuilt
+	// rather than frozen; these are the WL6 defaults.
 	var BLOCK_STATIC = {};
-	[24, 25, 26, 28, 30, 31, 33, 34, 35, 36, 39, 40, 41, 45, 58, 59, 60, 62, 63, 68, 69]
-		.forEach(function (c) { BLOCK_STATIC[c] = 1; });
+	function setBlockStatic(codes) {
+		BLOCK_STATIC = {};
+		codes.forEach(function (c) { BLOCK_STATIC[c] = 1; });
+	}
+	setBlockStatic([24, 25, 26, 28, 30, 31, 33, 34, 35, 36, 39, 40, 41, 45, 58, 59, 60, 62, 63, 68, 69]);
 
 	// Collectible items (plane1 code -> effect), from GetBonus. `min`/`gib` gate
 	// whether the item is taken (health/ammo pickups are left if not useful).
@@ -52,6 +57,17 @@
 		56: { fullheal: 1, snd: FX.BONUS1UP },                     // one-up
 		43: { key: 0, snd: FX.GETKEY }, 44: { key: 1, snd: FX.GETKEY }
 	};
+	// The shared (WL6) collectibles above are the base; a dataset may add its own
+	// (Spear of Destiny has a 25-round clip and the Spear itself). Rebuilt on a
+	// variant switch so the WL6 set is never permanently mutated.
+	var PICKUP_BASE = PICKUP;
+	function setPickups(extra) {
+		if (!extra) { PICKUP = PICKUP_BASE; return; }
+		var m = {}, k;
+		for (k in PICKUP_BASE) if (PICKUP_BASE.hasOwnProperty(k)) m[k] = PICKUP_BASE[k];
+		for (k in extra) if (extra.hasOwnProperty(k)) m[k] = extra[k];
+		PICKUP = m;
+	}
 	// Plane codes for the "use" (Space) mechanic.
 	var PUSHABLE = 98, ELEVATOR = 21;   // PUSHABLETILE / ELEVATORTILE
 	var GOLD_KEY = 43;                  // bo_key1 — what Hans and Gretel drop
@@ -93,7 +109,17 @@
 			pad: { fwd: false, back: false, left: false, right: false }
 		};
 		this.moveSpeed = 3.2;   // cells / second
-		this.turnSpeed = 1.7;   // radians / second (lower = finer aiming)
+		this.turnSpeed = 1.7;   // radians / second at full tilt (original walk: 2.14)
+		// Turning eases in rather than snapping straight to full speed. Holding the
+		// key still gets you the same rate as before within a fifth of a second, but
+		// a short tap now moves a fraction as far, which is what makes fine aiming
+		// possible: at 60fps full speed is ~1.6 degrees per frame, and that single
+		// step is what reads as a jump. Both values are live-tunable from the
+		// console (game.turnSpeed / game.turnRampMin).
+		this.turnRampMin = 0.15;  // fraction of turnSpeed a fresh tap starts at
+		this.turnRampRate = 4.0;  // how fast it eases up to 1.0 (per second)
+		this._turnRamp = 0.15;
+		this._turnSign = 0;
 		this.doorOpenTime = 0.5;
 		this.doorStayTime = 4.0;
 		this.showMap = false;
@@ -106,6 +132,7 @@
 		this._bjRun = false;       // B.J.'s victory run is under way
 		this._levelDoneReady = false;
 		this._continueTap = false;
+		this._campaignDone = false;
 		this._pendingLevel = 0;
 		this.renderScale = 1.0; // internal resolution factor (always native)
 		// Combat gamestate. Weapons: 0 knife, 1 pistol, 2 machine gun, 3 chaingun.
@@ -130,12 +157,43 @@
 		N_BLANK: 98, N_0: 99, FACE1A: 109
 	};
 
+	// Dataset-dependent tables. WL6 keeps the values above; a variant (e.g. Spear
+	// of Destiny) supplies its own POV-weapon pages, VGAGRAPH status-bar chunks,
+	// per-floor music and floor structure. Spear is one flat 21-floor campaign
+	// (no episodes, no secret-elevator warp) rather than 6 episodes of 10.
+	var EPISODES = true;        // false => flat run, label floors "Floor N"
+	var SECRET_WARP = true;     // false => the alternate elevator just advances
+	var SECRET_MAP = null;      // Spear routes its bonus floors by map number
+	var PAR_TIMES = null;       // per-floor par times in minutes (wl_inter.cpp)
+	var PAR_AMOUNT = 500;       // points per second saved against par
+	var PERCENT100AMT = 10000;  // points for a clean 100% in a category
+	if (root.WolfVariant) {
+		root.WolfVariant.onUse(function (v) {
+			if (!v) return;
+			if (v.weaponBase) WEAPON_BASE = v.weaponBase;
+			if (v.vga) VGA = v.vga;
+			if (v.songs) SONGS = v.songs;
+			if (v.prog) {
+				EPISODE_FLOORS = v.prog.episodeFloors;
+				ELEVATOR_BACK_TO = v.prog.elevatorBackTo;
+				EPISODES = v.prog.episodes;
+				SECRET_WARP = v.prog.secretWarp;
+				SECRET_MAP = v.prog.secretMap || null;
+			}
+			PAR_TIMES = v.parTimes || null;
+			if (v.statics) {
+				if (v.statics.block) setBlockStatic(v.statics.block);
+				setPickups(v.statics.pickup);
+			}
+		});
+	}
+
 	// Full player reset (called from the menu before the first level).
 	Game.prototype.resetPlayerState = function () {
 		this.gs = {
 			health: 100, ammo: STARTAMMO, weapon: WP.PISTOL, chosen: WP.PISTOL,
 			have: [true, true, false, false],
-			score: 0, lives: 3, difficulty: 1, godmode: false, infiniteAmmo: false, keys: 0,
+			score: 0, lives: 3, nextExtra: 40000, difficulty: 1, godmode: false, infiniteAmmo: false, keys: 0,
 			allWeapons: false, gameOver: false,
 			damageFlash: 0, fireCd: 0, dead: false, respawn: 0,
 			wpnAnimT: 0, wpnAnimDur: 0, bob: 0, faceframe: 0, faceTimer: 0
@@ -149,6 +207,178 @@
 		if (this.minimap) this.minimap.style.display = this.showMap ? 'block' : 'none';
 	};
 	Game.prototype.toggleMap = function () { this.setShowMap(!this.showMap); };
+
+	// Debug: list the live actors with their facing, the rotation frame the renderer
+	// derives from it, and the sprite that results. If an enemy shows its back while
+	// attacking, this says whether its DIRECTION is wrong (dir points away from you)
+	// or its SPRITE NUMBERING is (dir correct, but the artwork is offset).
+	Game.prototype.dumpActors = function () {
+		if (!this.ai || !this.ai.actors) { console.log('no actors'); return; }
+		var E = root.WolfEnemies, p = this.player, rows = [];
+		for (var i = 0; i < this.ai.actors.length; i++) {
+			var a = this.ai.actors[i];
+			if (a.proj || a.bj || !a.cfg) continue;
+			var name = '?';
+			if (a.S) for (var k in a.S) if (a.S[k] === a.state) { name = k; break; }
+			var dir = (a.dir === 8) ? 'NODIR' : a.dir;
+			var facing = (a.dir === 8) ? (a._idleDir || 0) : a.dir;
+			var rot = a.state && a.state.rot ? E.rotFrame(facing, a.x, a.y, p.x, p.y) : '-';
+			// Angle from the actor to the player, for comparison with its facing.
+			var toPlayer = Math.atan2(-(p.y - a.y), p.x - a.x) * 180 / Math.PI;
+			if (toPlayer < 0) toPlayer += 360;
+			rows.push({
+				kind: a.kind || a.cls || 'enemy',
+				state: name, rot: a.state ? !!a.state.rot : false,
+				dir: dir, facingDeg: facing * 45,
+				angleToPlayer: Math.round(toPlayer),
+				rotFrame: rot, baseSpr: a.state ? a.state.spr : '-', sprite: a.sprite,
+				hp: a.hp, dist: Math.round(Math.hypot(p.x - a.x, p.y - a.y) * 10) / 10
+			});
+		}
+		console.log('variant ' + ((root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.id : '?') +
+			'  player ' + (Math.round(p.x * 10) / 10) + ',' + (Math.round(p.y * 10) / 10));
+		if (console.table) console.table(rows); else console.log(rows);
+		return rows;
+	};
+
+	// straight out of VSWAP — the level below dumpSprite(), which only shows the
+	// decoded colours. Use this to tell "the data really says colour N" from "we
+	// read the wrong byte". Example: game.dumpSpritePosts(421, 24, 28).
+	Game.prototype.dumpSpritePosts = function (page, colFrom, colTo) {
+		if (!this.data) { console.log('no game data loaded'); return; }
+		var d = this.data, abs = d.spriteStart + page, base = d.pageOffset[abs];
+		if (base == null) { console.log('no chunk at abs page ' + abs); return; }
+		var src = d.vswap, pal = d.pal;
+		var dv = new DataView(src.buffer, base);
+		var firstCol = dv.getUint16(0, true), lastCol = dv.getUint16(2, true);
+		console.log('page ' + page + ' (abs ' + abs + ')  chunkOfs ' + base +
+			'  len ' + d.pageLength[abs] + '  cols ' + firstCol + '..' + lastCol);
+		if (colFrom == null) colFrom = firstCol;
+		if (colTo == null) colTo = Math.min(lastCol, colFrom + 3);
+		for (var col = Math.max(colFrom, firstCol); col <= Math.min(colTo, lastCol); col++) {
+			var p = dv.getUint16(4 + (col - firstCol) * 2, true);
+			var out = 'col ' + col + ' @' + p + ':';
+			var guard = 0;
+			while (guard++ < 64) {
+				var endY = dv.getUint16(p, true);
+				if (endY === 0) break;
+				endY >>= 1;
+				var pixOfs = dv.getInt16(p + 2, true);   // signed, see wl_formats.js
+				var startY = dv.getUint16(p + 4, true) >> 1;
+				p += 6;
+				var idxs = [], outside = 0;
+				var chunkEnd = d.pageLength[abs] || 0;
+				for (var y = startY; y < endY; y++) {
+					var rel = pixOfs + y;                       // byte offset inside the chunk
+					var idx = src[base + rel];
+					if (chunkEnd && (rel < 0 || rel >= chunkEnd)) outside++;
+					idxs.push(idx + '(' + pal[idx * 3] + ',' + pal[idx * 3 + 1] + ',' + pal[idx * 3 + 2] + ')');
+				}
+				out += '\n    post y ' + startY + '..' + (endY - 1) + '  pixOfs ' + pixOfs +
+					'  -> abs ' + (base + pixOfs + startY) +
+					(outside ? '   *** ' + outside + ' byte(s) OUTSIDE the chunk (len ' + chunkEnd + ') ***' : '') +
+					'\n      ' + idxs.join(' ');
+			}
+			console.log(out);
+		}
+	};
+
+	// claims versus the columns that really received pixels. A weapon or actor that
+	// renders as a narrow strip shows up here as a small "colsWithPixels" count.
+	// Call game.dumpSprite(426) for a specific relative page, or game.dumpSprite()
+	// for the weapon currently in hand.
+	Game.prototype.dumpSprite = function (page) {
+		if (!this.data) { console.log('no game data loaded'); return; }
+		if (page == null) page = WEAPON_BASE[this.gs.weapon];
+		var canvas;
+		try { canvas = this.data.getSpriteCanvas(page); } catch (e) { console.log('decode threw: ' + e.message); return; }
+		if (!canvas) { console.log('no canvas for page ' + page); return; }
+		var px = canvas.getContext('2d').getImageData(0, 0, 64, 64).data;
+		var cols = [], rowMin = 64, rowMax = -1, filled = 0;
+		for (var x = 0; x < 64; x++) {
+			var n = 0;
+			for (var y = 0; y < 64; y++) {
+				if (px[(y * 64 + x) * 4 + 3]) {
+					n++; filled++;
+					if (y < rowMin) rowMin = y;
+					if (y > rowMax) rowMax = y;
+				}
+			}
+			if (n) cols.push(x);
+		}
+		// Colour histogram: tells us whether an odd colour (e.g. the blue specks on
+		// the weapon hand) is genuinely in the decoded sprite, or only appears once
+		// the sprite is scaled and composited onto the view.
+		var hist = {};
+		for (var i = 0; i < 64 * 64; i++) {
+			if (!px[i * 4 + 3]) continue;
+			var k = px[i * 4] + ',' + px[i * 4 + 1] + ',' + px[i * 4 + 2];
+			hist[k] = (hist[k] || 0) + 1;
+		}
+		var top = Object.keys(hist).map(function (k) { return { rgb: k, n: hist[k] }; })
+			.sort(function (a, b) { return b.n - a.n; }).slice(0, 12);
+
+		var info = {
+			variant: (root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.id : '?',
+			relPage: page,
+			absPage: this.data.spriteStart + page,
+			spriteStart: this.data.spriteStart,
+			soundStart: this.data.soundStart,
+			colsWithPixels: cols.length,
+			colRange: cols.length ? (cols[0] + '..' + cols[cols.length - 1]) : 'none',
+			rowRange: rowMax >= 0 ? (rowMin + '..' + rowMax) : 'none',
+			opaquePixels: filled,
+			topColours: top
+		};
+		console.log(info);
+
+		// Coarse ASCII view of the decoded sprite (2x2 blocks): '.' transparent,
+		// 'B' a strongly blue pixel, '#' anything else opaque.
+		var art = '';
+		for (var ay = 0; ay < 64; ay += 2) {
+			var line = '';
+			for (var ax = 0; ax < 64; ax += 2) {
+				var o = (ay * 64 + ax) * 4;
+				if (!px[o + 3]) { line += '.'; continue; }
+				var r = px[o], g = px[o + 1], b = px[o + 2];
+				line += (b > 110 && b > r + 40 && b > g + 20) ? 'B' : '#';
+			}
+			art += line + '\n';
+		}
+		console.log(art);
+		return info;
+	};
+
+	// Debug: print the decoded plane geometry around the player, to tell whether a
+	// room's size comes from the map data or from a decode problem. Call
+	// game.dumpMap() (optionally a radius) from the browser console while standing
+	// in the room. Legend: @ player, # wall, E elevator, + door, o object, . floor.
+	Game.prototype.dumpMap = function (r) {
+		r = r || 6;
+		var lvl = this.level;
+		if (!lvl) { console.log('no level loaded'); return; }
+		var W = lvl.width, H = lvl.height, p0 = lvl.plane0, p1 = lvl.plane1;
+		var px = this.player.x | 0, py = this.player.y | 0;
+		var out = 'level ' + this._levelIndex + '  dims ' + W + 'x' + H + '  player ' + px + ',' + py + '\n';
+		for (var y = py - r; y <= py + r; y++) {
+			if (y < 0 || y >= H) continue;
+			var row = '';
+			for (var x = px - r; x <= px + r; x++) {
+				if (x < 0 || x >= W) { row += ' '; continue; }
+				var w = p0[y * W + x], o = p1[y * W + x], ch;
+				if (x === px && y === py) ch = '@';
+				else if (w === 21) ch = 'E';
+				else if (w > 0 && w <= 63) ch = '#';
+				else if (w >= 90 && w <= 101) ch = '+';
+				else if (o) ch = 'o';
+				else ch = '.';
+				row += ch;
+			}
+			out += row + '\n';
+		}
+		console.log(out);
+		return out;
+	};
 
 	// Leave the running game and hand back to the menu (Escape key / MENU button).
 	// main.js supplies onMenu, which restores the menu DOM; the game state stays
@@ -197,6 +427,11 @@
 	};
 
 	Game.prototype.load = function (buffers) {
+		// A run belongs to the dataset it started in. If the player switches game
+		// (Wolfenstein <-> Spear) the in-memory run is from the old data, so drop it
+		// — otherwise "Resume" would pick it up under the new dataset's textures.
+		var vid = (root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.id : 'WL6';
+		if (this.level && this._runVariant && this._runVariant !== vid) this.clearRun();
 		this.data = new root.WolfFormats.GameData(buffers);
 		this.rc = new RC(this.data, this.canvas);
 		if (root.SoundManager) this.sound = new root.SoundManager(this.data);
@@ -213,6 +448,7 @@
 	Game.prototype.startLevel = function (index) {
 		var lvl = this.data.getLevel(index);
 		this.level = lvl;
+		this._runVariant = (root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.id : 'WL6';
 		this._levelIndex = index;
 		this.pushwall = null;
 		this._levelDone = 0;
@@ -245,7 +481,7 @@
 			player: self.player,
 			rnd: function () { return (Math.random() * 256) | 0; },
 			hurtPlayer: function (pts, actor) { self._hurtPlayer(pts, actor); },
-			addScore: function (pts) { self.gs.score += pts; },
+			addScore: function (pts) { self._givePoints(pts); },
 			playerMoving: function () { return self._playerMoving; },
 			sound: self.sound || null,
 			blocked: function (tx, ty) { return self.solidObjects.has(ty * w + tx); },
@@ -290,6 +526,7 @@
 		this.solidObjects = new Set();
 		this.pickups = new Map();
 		this._stats = { floor: this._floorNumber(index), enemies: 0, kills: 0, secretsTotal: 0, secretsFound: 0, treasureTotal: 0, treasureFound: 0 };
+		this._levelTime = 0;              // seconds on this floor, for the par bonus
 		for (var y = 0; y < lvl.height; y++) {
 			for (var x = 0; x < lvl.width; x++) {
 				var t0 = lvl.plane0[y * lvl.width + x];
@@ -327,6 +564,13 @@
 		// which the AI mutates in place each frame.
 		this.staticSprites = sprites;
 		this._stats.enemies = this.ai.actors.length;
+		// SpawnGhosts bumps killtotal AND killcount together, so the four immortal
+		// ghosts on the secret floor count toward the total without ever keeping
+		// you off 100% — they cannot be shot.
+		for (var gi = 0; gi < this.ai.actors.length; gi++) {
+			var ga = this.ai.actors[gi];
+			if (ga.cfg && ga.cfg.ghost) this._stats.kills++;
+		}
 		if (typeof console !== 'undefined' && console.info) {
 			console.info('[uWolf] level ' + (index + 1) + ', difficulty ' + diff +
 				': ' + this.ai.actors.length + ' active enemies spawned');
@@ -522,7 +766,15 @@
 			this._sfx(it.snd, '1up');
 		}
 		else if (it.key != null) { this.gs.keys |= (1 << it.key); this._sfx(it.snd, 'key'); }
-		else if (it.points != null) { gs.score += it.points; if (it.treasure) this._stats.treasureFound++; this._sfx(it.snd, 'treasure'); }
+		else if (it.complete) {
+			// Spear of Destiny: GetBonus sets playstate = ex_completed, so picking it
+			// up ends the floor. Deferred by a tick so the caller can still retire the
+			// sprite before the level tears down.
+			this._sfx(it.snd, 'treasure');
+			var self = this;
+			setTimeout(function () { self._completeFloor('floor'); }, 0);
+		}
+		else if (it.points != null) { this._givePoints(it.points); if (it.treasure) this._stats.treasureFound++; this._sfx(it.snd, 'treasure'); }
 		else return false;
 		return true;
 	};
@@ -724,7 +976,55 @@
 	// "E3 F9". Anything that shows a position in the game uses this — the raw level
 	// index is a storage detail and must never reach the player (a save on level index
 	// 52 used to be listed as "Floor 53", which is not a floor that exists).
+	// GivePoints: every EXTRAPOINTS the player earns an extra man, exactly as the
+	// original does — the threshold walks up with the score, so a single fat pickup
+	// can hand out more than one life.
+	var EXTRAPOINTS = 40000;
+	Game.prototype._givePoints = function (pts) {
+		var gs = this.gs;
+		if (!gs || !pts) return;
+		gs.score += pts;
+		if (gs.nextExtra == null) gs.nextExtra = EXTRAPOINTS;
+		while (gs.score >= gs.nextExtra) {
+			gs.nextExtra += EXTRAPOINTS;
+			if (gs.lives < 9) gs.lives++;            // GiveExtraMan
+			this._sfx(FX.BONUS1UP, 'bonus');
+		}
+	};
+
+	// LevelCompleted's payout: PAR_AMOUNT per whole second saved against the floor's
+	// par time, plus PERCENT100AMT for each category finished at 100%. A par of 0
+	// (boss and secret floors) means no time bonus is on offer.
+	Game.prototype._parSeconds = function (index) {
+		if (!PAR_TIMES) return 0;
+		var i = (index == null) ? this._levelIndex : index;
+		var mins = PAR_TIMES[i];
+		return (typeof mins === 'number' && mins > 0) ? mins * 60 : 0;
+	};
+
+	Game.prototype._awardEndOfFloorBonus = function () {
+		var st = this._stats;
+		if (!st) return;
+		var pct = function (got, total) { return total > 0 ? ((got * 100 / total) | 0) : 0; };
+		var par = this._parSeconds();
+		var left = 0;
+		if (par > 0 && this._levelTime < par) left = (par - this._levelTime) | 0;
+		var bonus = left * PAR_AMOUNT;
+		if (pct(st.kills, st.enemies) >= 100) bonus += PERCENT100AMT;
+		if (pct(st.secretsFound, st.secretsTotal) >= 100) bonus += PERCENT100AMT;
+		if (pct(st.treasureFound, st.treasureTotal) >= 100) bonus += PERCENT100AMT;
+		st.timeLeft = left;
+		st.parSeconds = par;
+		st.elapsed = this._levelTime | 0;
+		st.bonus = bonus;
+		if (bonus) this._givePoints(bonus);
+	};
+
 	Game.prototype._floorLabel = function (index) {
+		// Wolfenstein is six episodes of ten floors, so its labels are "E# F#".
+		// Spear is one continuous 21-floor campaign and is numbered straight
+		// through, exactly as the game itself counts it.
+		if (!EPISODES) return 'Floor ' + this._floorNumber(index);
 		return 'E' + this._episodeNumber(index) + ' F' + this._floorNumber(index);
 	};
 
@@ -735,7 +1035,7 @@
 		// Standing on the alternate elevator floor tile takes you to the secret floor
 		// instead of the next one (ex_secretlevel).
 		var under = lvl.plane0[(this.player.y | 0) * w + (this.player.x | 0)];
-		this._completeFloor(under === ALT_ELEVATOR ? 'secret' : 'floor');
+		this._completeFloor((SECRET_WARP && under === ALT_ELEVATOR) ? 'secret' : 'floor');
 	};
 
 	// A_StartDeathCam. The camera jumps to where you were standing when you landed the
@@ -793,15 +1093,42 @@
 		var next;
 
 		if (mode === 'victory') {
-			next = ((ep + 1) * EPISODE_FLOORS) % count;          // on to the next episode
+			// Wolfenstein rolls on into the next episode. Spear is a single campaign:
+			// once it is won there is nowhere left to go, so the run ends and the menu
+			// comes back instead of dumping you on floor 1 again.
+			if (!EPISODES) { this._campaignDone = true; next = this._levelIndex; }
+			else next = ((ep + 1) * EPISODE_FLOORS) % count;
+		} else if (SECRET_MAP) {
+			// Spear routes its two bonus floors by map number rather than by an
+			// episode slot: the hidden elevator on map 3 leads to map 18 and the one
+			// on map 11 to map 19, and each drops you back on the floor after the one
+			// you left (wl_game.cpp, FROMSECRET1 / FROMSECRET2).
+			if (mode === 'secret' && SECRET_MAP.to[this._levelIndex] != null) {
+				next = SECRET_MAP.to[this._levelIndex];
+			} else if (SECRET_MAP.back[this._levelIndex] != null) {
+				next = SECRET_MAP.back[this._levelIndex];
+			} else {
+				next = this._levelIndex + 1;
+			}
+		} else if (floor === 9) {
+			// Order matters, and it is the original's: being ON the secret floor is
+			// checked BEFORE the secret exit, so leaving floor 10 always drops you
+			// back into the episode — even through an alternate elevator.
+			next = ep * EPISODE_FLOORS + ELEVATOR_BACK_TO[ep % ELEVATOR_BACK_TO.length];
 		} else if (mode === 'secret') {
 			next = ep * EPISODE_FLOORS + 9;
-		} else if (floor === 9) {
-			next = ep * EPISODE_FLOORS + ELEVATOR_BACK_TO[ep % ELEVATOR_BACK_TO.length];
 		} else {
 			next = ep * EPISODE_FLOORS + floor + 1;
 		}
 
+		// A flat campaign has no wrap-around: running past its last floor by any
+		// route (boss, elevator, exit tile) means the run is simply over.
+		if (!EPISODES && (this._campaignDone || next >= count)) {
+			this._campaignDone = true;
+			next = this._levelIndex;
+		}
+
+		this._awardEndOfFloorBonus();
 		this._pendingLevel = next % count;
 		this._episodeDone = (mode === 'victory');
 
@@ -985,12 +1312,20 @@
 			return;
 		}
 
+		if (this._levelDone <= 0 && !this._doneWait) this._levelTime += dt;
+
 		// Elevator: hold the floor-stats screen until the player presses a key/taps.
 		if (this._levelDone > 0) {
 			var held = !!(k['Space'] || k['Enter'] || k['NumpadEnter'] || k['KeyE']);
 			var tap = this._continueTap; this._continueTap = false;
 			if (!held && !tap) this._levelDoneReady = true;      // wait for release first
 			if (this._levelDoneReady && (held || tap)) {
+				if (this._campaignDone) {                        // nothing left to play
+					this._campaignDone = false;
+					this.clearRun();
+					this.exitToMenu();
+					return;
+				}
 				this.startLevel(this._pendingLevel);
 				this.autosave();
 				return;                                          // _loop reschedules
@@ -1015,7 +1350,16 @@
 			if (pad.right) turn += 1;
 		}
 
-		if (turn) this.setAngle(p.angle + turn * this.turnSpeed * dt);
+		if (turn) {
+			// Reversing direction restarts the ease-in, so flicking left-right keeps
+			// the same fine control as a fresh tap.
+			if (turn !== this._turnSign) { this._turnRamp = this.turnRampMin; this._turnSign = turn; }
+			else this._turnRamp = Math.min(1, this._turnRamp + this.turnRampRate * dt);
+			this.setAngle(p.angle + turn * this.turnSpeed * this._turnRamp * dt);
+		} else {
+			this._turnRamp = this.turnRampMin;
+			this._turnSign = 0;
+		}
 
 		this._playerMoving = false;
 		if (forward || strafe) {
@@ -1161,8 +1505,14 @@
 			ctx.textAlign = 'center';
 			ctx.fillStyle = '#ffd24a'; ctx.font = 'bold ' + Math.max(16, H * 0.075) + 'px monospace';
 			if (this._episodeDone) {
-				var ep = ((this._levelIndex / 10) | 0) + 1;
-				ctx.fillText('EPISODE ' + ep + ' COMPLETE', W / 2, cyC - H * 0.24);
+				// Spear has no episodes, so "EPISODE n COMPLETE" is meaningless there
+				// (and the hardcoded 10 used to turn floor 21 into "EPISODE 3").
+				if (EPISODES) {
+					ctx.fillText('EPISODE ' + this._episodeNumber() + ' COMPLETE', W / 2, cyC - H * 0.24);
+				} else {
+					var vn = (root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.name : 'MISSION';
+					ctx.fillText(vn.toUpperCase() + ' COMPLETE', W / 2, cyC - H * 0.24);
+				}
 			} else {
 				ctx.fillText('FLOOR ' + st.floor + ' COMPLETE', W / 2, cyC - H * 0.24);
 			}
@@ -1193,9 +1543,27 @@
 				ctx.fillStyle = (p === 100) ? '#ffd24a' : '#fff';
 				ctx.fillText(padL(p + '%', PCT), pctX, y);
 			}
+			// TIME vs par, then the bonus that was just paid out, then the score.
+			var extra = rows.length;
+			var mmss = function (sec) {
+				sec = Math.max(0, sec | 0);
+				return ((sec / 60) | 0) + ':' + ('0' + (sec % 60)).slice(-2);
+			};
+			if (st.elapsed != null) {
+				var timeTxt = mmss(st.elapsed) + (st.parSeconds ? '  PAR ' + mmss(st.parSeconds) : '');
+				ctx.fillStyle = (st.parSeconds && st.timeLeft > 0) ? '#ffd24a' : '#fff';
+				ctx.fillText(padR('TIME', LBL) + timeTxt, x0, cyC - H * 0.09 + extra * H * 0.08);
+				extra++;
+			}
+			if (st.bonus) {
+				ctx.fillStyle = '#ffd24a';
+				ctx.fillText(padR('BONUS', LBL) + padL(st.bonus, lineChars - LBL),
+					x0, cyC - H * 0.09 + extra * H * 0.08);
+				extra++;
+			}
 			ctx.fillStyle = '#fff';
 			ctx.fillText(padR('SCORE', LBL) + padL(this.gs.score, lineChars - LBL),
-				x0, cyC - H * 0.09 + rows.length * H * 0.08);
+				x0, cyC - H * 0.09 + extra * H * 0.08);
 
 			ctx.textAlign = 'center';
 			ctx.fillStyle = (((Date.now() / 500) | 0) % 2) ? '#ffd24a' : 'rgba(255,210,74,0.35)';
@@ -1377,12 +1745,13 @@
 
 		return {
 			v: SAVE_VERSION,
+			variant: (root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.id : 'WL6',
 			ts: Date.now(),
 			floor: this._levelIndex,
 			player: { x: +this.player.x.toFixed(3), y: +this.player.y.toFixed(3), angle: +this.player.angle.toFixed(4) },
 			gs: {
 				health: gs.health, ammo: gs.ammo, weapon: gs.weapon, chosen: gs.chosen,
-				have: gs.have.slice(), score: gs.score, lives: gs.lives, keys: gs.keys,
+				have: gs.have.slice(), score: gs.score, lives: gs.lives, nextExtra: gs.nextExtra, keys: gs.keys,
 				difficulty: gs.difficulty, godmode: gs.godmode, infiniteAmmo: gs.infiniteAmmo,
 				allWeapons: gs.allWeapons
 			},
@@ -1395,6 +1764,7 @@
 				ax: this.pushwall.ax, ay: this.pushwall.ay, dx: this.pushwall.dx, dy: this.pushwall.dy,
 				dist: +this.pushwall.dist.toFixed(3), tile: this.pushwall.tile, max: this.pushwall.max
 			} : null,
+			levelTime: +(this._levelTime || 0).toFixed(2),
 			stats: {
 				floor: this._stats.floor, enemies: this._stats.enemies, kills: this._stats.kills,
 				secretsTotal: this._stats.secretsTotal, secretsFound: this._stats.secretsFound,
@@ -1406,6 +1776,12 @@
 	Game.prototype.applyState = function (st) {
 		if (!st || st.v !== SAVE_VERSION) throw new Error('Unsupported save format');
 		if (!this.data) throw new Error('Game data not loaded');
+		// A save carries the dataset it was made in; refuse to apply a Wolfenstein
+		// save onto Spear or vice versa (the slot keys already keep them apart, this
+		// just guards F9/quick-load across a dataset switch).
+		if (st.variant && root.WolfVariant && st.variant !== root.WolfVariant.active.id) {
+			throw new Error('Save is from a different game (' + st.variant + ')');
+		}
 
 		// Difficulty decides which actors spawn, so it must be set before the
 		// floor is rebuilt.
@@ -1449,6 +1825,9 @@
 
 		this.pushwall = st.pushwall || null;
 		if (st.stats) this._stats = st.stats;
+		// Keep the clock running across a save/load, otherwise reloading would hand
+		// out a full time bonus for free.
+		this._levelTime = (typeof st.levelTime === 'number') ? st.levelTime : 0;
 		this._levelDone = 0;
 		this._doneWait = 0;
 		this._episodeDone = false;
@@ -1458,7 +1837,13 @@
 	};
 
 	// --- localStorage slots ---
-	function slotKey(slot) { return SAVE_PREFIX + slot; }
+	// Slot keys are namespaced by dataset so Wolfenstein and Spear saves never
+	// share a slot. WL6 keeps its original un-suffixed keys for backward
+	// compatibility; other datasets get a "<id>." segment (e.g. uwolf.save.SOD.auto).
+	function slotKey(slot) {
+		var v = (root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.id : 'WL6';
+		return (v === 'WL6') ? SAVE_PREFIX + slot : SAVE_PREFIX + v + '.' + slot;
+	}
 
 	Game.prototype.saveToSlot = function (slot) {
 		if (this.gs && (this.gs.dead || this.gs.gameOver)) {
@@ -1500,6 +1885,7 @@
 				episode: this._episodeNumber(st.floor),
 				floor: this._floorNumber(st.floor),
 				health: st.gs.health, score: st.gs.score, lives: st.gs.lives,
+				nextExtra: st.gs.nextExtra != null ? st.gs.nextExtra : 40000,
 				difficulty: st.gs.difficulty
 			};
 		} catch (e) { return null; }

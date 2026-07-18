@@ -8,7 +8,7 @@
 	<title>uWolf</title>
 	<link rel="icon" href="favicon.ico" sizes="any">
 	<link rel="icon" href="favicon.svg" type="image/svg+xml">
-	<link rel="stylesheet" href="css/style.css?v=1.0.6">
+	<link rel="stylesheet" href="css/style.css?v=1.0.7">
 </head>
 
 <body>
@@ -38,29 +38,35 @@
 				it.</p>
 
 			<div class="step">
-				<span class="n">1</span>
 				<div>
-					<strong>Point it at your data</strong>
-					<p>Copy these from your registered Wolfenstein 3D (v1.4) into this page's
-						folder — your web server's Wolfenstein root.</p>
+					<strong>Game Data</strong>
+					<p>Copy these from your registered Wolfenstein 3D (v1.4) into this page's folder — your web
+						server's Wolfenstein root.</p>
+				</div>
+			</div>
+
+			<div class="step">
+				<div>
+					<strong>Game Variant</strong>
+					<select id="variantSel" class="variant-sel"></select>
 
 					<div class="files">
 						<div class="files-row">
-							<span class="files-what">Required</span>
+							<span class="files-what">Required (WL6/SOD)</span>
 							<span class="files-list">
-								<code>VSWAP.WL6</code><code>MAPHEAD.WL6</code><code>GAMEMAPS.WL6</code>
+								<code>VSWAP</code><code>MAPHEAD</code><code>GAMEMAPS</code>
 							</span>
 						</div>
 						<div class="files-row">
-							<span class="files-what">Status bar &amp; BJ face <em>(opt.)</em></span>
+							<span class="files-what">Status bar &amp; BJ face (WL6/SOD) <em>(opt.)</em></span>
 							<span class="files-list">
-								<code>VGAGRAPH.WL6</code><code>VGAHEAD.WL6</code><code>VGADICT.WL6</code>
+								<code>VGAGRAPH</code><code>VGAHEAD</code><code>VGADICT</code>
 							</span>
 						</div>
 						<div class="files-row">
-							<span class="files-what">Music &amp; sound effects <em>(opt.)</em></span>
+							<span class="files-what">Music &amp; sound effects (WL6/SOD) <em>(opt.)</em></span>
 							<span class="files-list">
-								<code>AUDIOHED.WL6</code><code>AUDIOT.WL6</code>
+								<code>AUDIOHED</code><code>AUDIOT</code>
 							</span>
 						</div>
 					</div>
@@ -77,11 +83,11 @@
 				<button id="btnResume" class="resume-btn hidden">Resume game</button>
 
 				<div id="savesBox" class="hidden">
-					<strong id="savesLabel">2 · Continue a saved game</strong>
+					<strong id="savesLabel">Continue a saved game</strong>
 					<div id="savesList" class="saves"></div>
 				</div>
 
-				<label for="levelSel"><strong id="newGameLabel">2 · Start a new game</strong></label>
+				<label for="levelSel"><strong id="newGameLabel">Start a new game</strong></label>
 				<select id="levelSel"></select>
 
 				<div class="opts">
@@ -115,17 +121,18 @@
 		</div>
 	</div>
 
-	<script src="js/palette.js?v=1.0.6"></script>
-	<script src="js/wl_formats.js?v=1.0.6"></script>
-	<script src="js/vgagraph.js?v=1.0.6"></script>
-	<script src="js/raycaster.js?v=1.0.6"></script>
-	<script src="js/enemies.js?v=1.0.6"></script>
-	<script src="js/sound.js?v=1.0.6"></script>
-	<script src="js/opl2.js?v=1.0.6"></script>
-	<script src="js/music.js?v=1.0.6"></script>
-	<script src="js/ai.js?v=1.0.6"></script>
-	<script src="js/game.js?v=1.0.6"></script>
-	<script src="js/main.js?v=1.0.6"></script>
+	<script src="js/variants.js?v=1.0.7"></script>
+	<script src="js/palette.js?v=1.0.7"></script>
+	<script src="js/wl_formats.js?v=1.0.7"></script>
+	<script src="js/vgagraph.js?v=1.0.7"></script>
+	<script src="js/raycaster.js?v=1.0.7"></script>
+	<script src="js/enemies.js?v=1.0.7"></script>
+	<script src="js/sound.js?v=1.0.7"></script>
+	<script src="js/opl2.js?v=1.0.7"></script>
+	<script src="js/music.js?v=1.0.7"></script>
+	<script src="js/ai.js?v=1.0.7"></script>
+	<script src="js/game.js?v=1.0.7"></script>
+	<script src="js/main.js?v=1.0.7"></script>
 </body>
 
 </html>

@@ -33,13 +33,18 @@
 		return p;
 	}
 
-	// Doors work the same way (HitVertDoor / HitHorizDoor), from DOORWALL = 98.
+	// Doors work the same way (HitVertDoor / HitHorizDoor). Their textures are the
+	// last wall pages: DOORWALL = PMSpriteStart - 8 in Wolf4SDL, i.e. numWalls - 8.
+	// Deriving it from numWalls keeps this correct for any dataset (Spear of
+	// Destiny has a different wall count, so its DOORWALL differs from WL6's 98).
 	function doorTexPage(t, side, numWalls) {
+		var doorwall = numWalls - 8;
 		var base;
-		if (t === 100 || t === 101) base = 102;        // elevator door
-		else if (t >= 92 && t <= 95) base = 104;       // locked (gold/silver)
-		else base = 98;                                // normal door
+		if (t === 100 || t === 101) base = doorwall + 4;   // elevator door
+		else if (t >= 92 && t <= 95) base = doorwall + 6;  // locked (gold/silver)
+		else base = doorwall;                              // normal door
 		var p = base + (side === 0 ? 1 : 0);
+		if (p < 0) p = 0;
 		if (p >= numWalls) p = numWalls - 1;
 		return p;
 	}

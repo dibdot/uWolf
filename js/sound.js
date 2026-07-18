@@ -140,5 +140,18 @@
 	};
 
 	SoundManager.DIGI = DIGI;
+
+	// The digitised-sound map can vary per dataset (WL6 vs. SOD). Mutate DIGI in
+	// place on a variant switch so every holder (ai.js captured it at load) stays
+	// valid. SOD currently reuses the WL6 map bar the divergent tail — see
+	// variants.js. No-op when the variant carries no digi table.
+	if (root.WolfVariant) {
+		root.WolfVariant.onUse(function (v) {
+			if (!v || !v.digi) return;
+			for (var k in DIGI) if (DIGI.hasOwnProperty(k)) delete DIGI[k];
+			for (var j in v.digi) if (v.digi.hasOwnProperty(j)) DIGI[j] = v.digi[j];
+		});
+	}
+
 	root.SoundManager = SoundManager;
 })(typeof window !== 'undefined' ? window : this);

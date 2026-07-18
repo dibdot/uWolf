@@ -14,9 +14,22 @@
 (function (root) {
 	'use strict';
 
-	var STARTMUSIC = 261;      // 3 * LASTSOUND
-	var STARTFX = 87;          // LASTSOUND — where the FM sound-effect table starts
+	// AUDIOT layout: PC sounds [0..NUMSOUNDS), AdLib effects [NUMSOUNDS..2*NUMSOUNDS),
+	// digi [2*NUMSOUNDS..3*NUMSOUNDS), music [3*NUMSOUNDS..). NUMSOUNDS is a per-dataset
+	// compile-time constant (WL6 = 87, SPEAR = 81), so the FM-effect and music bases
+	// differ between Wolfenstein and Spear — hardcoding WL6's 87/261 made SOD pickup
+	// sounds read the wrong chunks and would shift SOD music too. Derived from the
+	// active variant's numSounds below; the values here are the WL6 defaults.
+	var STARTMUSIC = 261;      // 3 * NUMSOUNDS
+	var STARTFX = 87;          // NUMSOUNDS — where the FM sound-effect table starts
 	var NUM_MUSIC = 27;
+	if (root.WolfVariant) {
+		root.WolfVariant.onUse(function (v) {
+			var n = (v && v.numSounds) || 87;
+			STARTFX = n;
+			STARTMUSIC = 3 * n;
+		});
+	}
 	var IMF_RATE = 700;        // the sequencer's tick rate, in Hz
 	var SFX_RATE = 140;        // FM effects step every 5th tick (soundTimeCounter = 5)
 

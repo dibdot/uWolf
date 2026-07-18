@@ -77,6 +77,9 @@
 			hp: HP.dog, pts: 200, dog: true
 		}
 	};
+	// The WL6 tables above are the default; a dataset variant may shift the shared
+	// enemy sprites (see the WolfVariant hook after the boss table).
+	var TYPES_WL6 = TYPES;
 
 	// [W1, SHOOT1, DIE1, DEAD, sightSound, ending]
 	//
@@ -153,6 +156,26 @@
 			launch: 69                                    // FLAMETHROWERSND
 		}
 	};
+	// Projectiles are dataset-dependent: the sprite pages above are Wolfenstein's
+	// and Spear has its own pair (the Death Knight's rocket and the Angel's spark).
+	// Rebuilt on a variant switch, same pattern as the enemy tables. Spear never
+	// spawns the WL6-only throwers, so leaving their entries in place is harmless.
+	var PROJ_BASE = PROJ;
+	function setProj(extra) {
+		if (!extra) { PROJ = PROJ_BASE; return; }
+		var m = {}, k;
+		for (k in PROJ_BASE) if (PROJ_BASE.hasOwnProperty(k)) m[k] = PROJ_BASE[k];
+		for (k in extra) {
+			if (!extra.hasOwnProperty(k)) continue;
+			var src = extra[k], o = {};
+			for (var f in src) if (src.hasOwnProperty(f)) o[f] = src[f];
+			// Profiles carry raw per-tic speeds (as the source does); convert them
+			// the same way the built-in table does.
+			if (typeof o.speed === 'number') o.speed = spd(o.speed);
+			m[k] = o;
+		}
+		PROJ = m;
+	}
 
 	var BOSS = {
 		hans:    { W: 296, SHOOT1: 300, DIE1: 304, dieN: 3, DEAD: 303, sight: DIGI.GUTENTAG,
@@ -188,21 +211,92 @@
 			chase: 2560,
 			SHOOT: [[349, 30, 0], [350, 10, 1], [351, 10, 1], [350, 10, 1], [351, 10, 1], [350, 10, 1]] }
 	};
+	var BOSS_WL6 = BOSS;
+
+	// Dataset variants (e.g. Spear of Destiny) shift the shared enemy sprites by a
+	// fixed amount — SOD inserts four SPEAR-only statics (SPR_STAT_48..51) before
+	// the guard sprites, so every shared enemy frame moves by +4 — and replace the
+	// boss cast entirely. The shift is uniform, so it is applied mechanically to
+	// the WL6 tables; the boss table is swapped wholesale (see variants.js). Any
+	// cache that bakes in sprite numbers is cleared on a switch.
+	function shiftRows(rows, n) {
+		return rows ? rows.map(function (r) { return [r[0] + n, r[1], r[2]]; }) : rows;
+	}
+	function shiftTypes(src, n) {
+		if (!n) return src;
+		var out = {};
+		for (var k in src) {
+			if (!src.hasOwnProperty(k)) continue;
+			var t = src[k], o = {};
+			// Copy the data fields only. statesFor() memoises a built state graph on
+			// the type object as `_states`, and that graph has the ORIGINAL sprite
+			// numbers baked into every frame. Copying it would hand the shifted type
+			// a stale WL6 state machine, so enemies would keep rendering WL6 frames
+			// (guard stand 50 instead of 54) — which, with eight rotations, reads as
+			// a 180-degree error: the actor shows its back while facing you.
+			for (var f in t) if (t.hasOwnProperty(f) && f.charAt(0) !== '_') o[f] = t[f];
+			['S', 'W', 'PAIN', 'PAIN2', 'DEAD'].forEach(function (fld) {
+				if (typeof o[fld] === 'number') o[fld] = o[fld] + n;
+			});
+			o.SHOOT = shiftRows(o.SHOOT, n);
+			o.DIE = shiftRows(o.DIE, n);
+			o.JUMP = shiftRows(o.JUMP, n);
+			out[k] = o;
+		}
+		return out;
+	}
+	function clearBossCache(tbl) { if (tbl) for (var k in tbl) if (tbl[k]) delete tbl[k]._cfg; }
+
+	// The enemy sight/fire cues and the death-scream pool are digi indices baked at
+	// load from the WL6 map, so they must be re-resolved against the active map when
+	// the dataset changes (sound.js has already swapped DIGI by the time this runs).
+	// The logical names below reproduce the WL6 values exactly, so WL6 is unchanged.
+	function applySounds() {
+		var T = TYPES;
+		if (T.guard) { T.guard.sight = DIGI.HALT; T.guard.fire = DIGI.NAZIFIRE; }
+		if (T.officer) { T.officer.sight = DIGI.SPION; T.officer.fire = DIGI.NAZIFIRE; }
+		if (T.ss) { T.ss.sight = DIGI.SCHUTZ; T.ss.fire = DIGI.SSFIRE; }
+		if (T.mutant) { T.mutant.fire = DIGI.NAZIFIRE; }
+		if (T.dog) { T.dog.sight = DIGI.DOGBARK; }
+		GUARD_SCREAMS = [DIGI.DEATH1, DIGI.DEATH2, DIGI.DEATH3, DIGI.DEATH4,
+			DIGI.DEATH5, DIGI.DEATH7, DIGI.DEATH8, DIGI.DEATH9];
+	}
+
+	if (root.WolfVariant) {
+		root.WolfVariant.onUse(function (v) {
+			TYPES = (v && v.spriteShift) ? shiftTypes(TYPES_WL6, v.spriteShift) : TYPES_WL6;
+			BOSS = (v && v.boss) ? v.boss : BOSS_WL6;
+			clearBossCache(BOSS_WL6);
+			clearBossCache(v && v.boss);
+			bjStates._s = null;   // BJ frames are dataset-relative too
+			setProj(v && v.proj);
+			applySounds();
+		});
+	}
 
 	function bossType(kind) {
-		var b = BOSS[kind] || BOSS.hans;
+		var b = BOSS[kind] || BOSS.hans || BOSS.trans;
 		if (b._cfg) return b._cfg;                 // cached: the state graph is shared
 		var die = [];
 		for (var i = 0; i < b.dieN; i++) die.push([b.DIE1 + i, 15, i === 0 ? 1 : 0]);
 		b._cfg = {
 			kind: kind,
 			W: b.W,
-			SHOOT: b.SHOOT || [[b.SHOOT1, 30, 1]],
+			// No SHOOT and no SHOOT1 means the actor has no ranged attack at all
+			// (the Spectre), so it must not get a shoot state built for it.
+			SHOOT: b.SHOOT || (b.SHOOT1 != null ? [[b.SHOOT1, 30, 1]] : null),
 			DIE: die,
 			DEAD: b.DEAD,
 			patrol: spd(512), chase: spd(b.chase || 1536),
 			sight: b.sight, fire: DIGI.BOSSFIRE, death: b.death,
 			hp: b.hp, pts: b.pts, boss: true, betterShot: true,
+			closeDmg: b.closeDmg || 0,        // Ubermutant's point-blank maul
+			runAway: !!b.runAway,             // Barnacle Wilhelm backs off up close
+			relaunch: b.relaunch || 0,        // Angel: shots before it needs a breather
+			TIRED: b.TIRED || null,           // Angel's tired frames
+			tiredFx: b.tiredFx != null ? b.tiredFx : -1,   // AdLib cue during the breather
+			dormant: !!b.dormant,             // Spectre goes dormant instead of dying
+			contactDmg: b.contactDmg || 0,    // Spectre drains health on contact
 			dropsKey: b.end === 'key',
 			victory: b.end === 'victory',
 			morphTo: b.end === 'morph' ? b.morphTo : null
@@ -213,12 +307,42 @@
 	// --- Build a per-type state graph -------------------------------------
 	// State: {rot, spr, tics, think, action, next}. Walk states rotate (sprite =
 	// spr + rotationframe); attack/pain/die states are single-frame.
+	// Action names that are state actions in their own right rather than the name
+	// of a projectile to throw.
+	var PLAIN_ACTIONS = { shoot: 1, attack0: 1, relaunch: 1, tired: 1, bite: 1, scream: 1 };
+
+	// The four Wolfenstein ghosts (Blinky, Pinky, Clyde, Inky) on the secret floor.
+	// SpawnGhosts gives them dog speed, an east facing and FL_AMBUSH, and crucially
+	// no FL_SHOOTABLE — they cannot be killed. They have two non-rotating frames and
+	// no attack of their own: MoveObj drains health while they are touching you,
+	// the same mechanic the Spectre uses.
+	var GHOST_CACHE = {};
+	function ghostType(base) {
+		if (GHOST_CACHE[base]) return GHOST_CACHE[base];
+		GHOST_CACHE[base] = {
+			kind: 'ghost', ghost: true, W: base,
+			patrol: spd(1500), chase: spd(1500),   // SPDDOG
+			contactDmg: 2,                          // TakeDamage(tics*2) on contact
+			sight: -1, fire: -1, pts: 0, hp: [1, 1, 1, 1]
+		};
+		return GHOST_CACHE[base];
+	}
+
 	function buildStates(cfg) {
 		function st(rot, spr, tics, think, action) {
 			return { rot: rot, spr: spr, tics: tics, think: think, action: action, next: null };
 		}
 		var S = {};
 		var chaseThink = cfg.dog ? 'dogchase' : 'chase';
+
+		if (cfg.ghost) {
+			// Two frames, cycling, chasing forever. No stand, no attack, no death.
+			var g1 = st(false, cfg.W, 10, chaseThink, null);
+			var g2 = st(false, cfg.W + 1, 10, chaseThink, null);
+			g1.next = g2; g2.next = g1;
+			S.chase1 = g1; S.stand = g1; S.path1 = g1;
+			return S;
+		}
 
 		if (cfg.boss) {
 			// Bosses: 4 non-rotating walk frames cycling, generic ranged shoot.
@@ -258,14 +382,31 @@
 			var prev = null, first = null;
 			for (var k = 0; k < cfg.SHOOT.length; k++) {
 				var f = cfg.SHOOT[k];
-				// f[2]: 0 = nothing, 1 = fire bullets (T_Shoot), or the name of a
-				// projectile to throw ('needle', 'rocket', 'fire').
-				var act = f[2] ? (f[2] === 1 ? 'shoot' : 'throw:' + f[2]) : null;
+				// f[2]: 0 = nothing, 1 = fire bullets (T_Shoot), a plain action name,
+				// or a projectile to throw ('needle', 'rocket', 'hrocket:-4', ...).
+				var act = null;
+				if (f[2] === 1) act = 'shoot';
+				else if (f[2]) act = PLAIN_ACTIONS[f[2]] ? f[2] : 'throw:' + f[2];
 				var s = st(false, f[0], f[1], null, act);
 				if (prev) prev.next = s; else first = s;
 				prev = s;
 			}
 			prev.next = S.chase1; S.shoot1 = first;
+			// A_StartAttack / A_Relaunch: the Angel of Death does not fall back to
+			// chasing after one spark. It loops on its launch frame, and the
+			// 'relaunch' action decides each time whether to throw again, break off,
+			// or — after `relaunch` throws — drop into the tired state. So the tail
+			// of the sequence points back at the launch frame, not at the chase.
+			if (cfg.relaunch && S.shoot1 && S.shoot1.next) prev.next = S.shoot1.next;
+		}
+		// Angel's breather: a couple of slow frames, then back to the chase.
+		if (cfg.TIRED && cfg.TIRED.length) {
+			var tA = st(false, cfg.TIRED[0], 40, null, 'tired');
+			var tB = st(false, cfg.TIRED[1] != null ? cfg.TIRED[1] : cfg.TIRED[0], 40, null, null);
+			var tC = st(false, cfg.TIRED[0], 40, null, 'tired');
+			var tD = st(false, cfg.TIRED[1] != null ? cfg.TIRED[1] : cfg.TIRED[0], 40, null, null);
+			tA.next = tB; tB.next = tC; tC.next = tD; tD.next = S.chase1;
+			S.tired = tA;
 		}
 		if (cfg.JUMP) {
 			var jprev = null, jfirst = null;
@@ -289,7 +430,11 @@
 		// The floor-ending bosses run A_StartDeathCam on their LAST death frame, not
 		// the moment their hitpoints hit zero — so the death animation plays out first
 		// and the intermission doesn't slide in while the boss is still on his feet.
-		var dead = st(false, cfg.DEAD, cfg.victory ? 20 : 0, null, cfg.victory ? 'victory' : null);
+		// A dormant actor (the Spectre) doesn't rest in the dead state — it lingers
+		// on the last fade frame and A_Dormant brings it back once you have moved on.
+		var dead = st(false, cfg.DEAD,
+			cfg.victory ? 20 : (cfg.dormant ? 40 : 0), null,
+			cfg.victory ? 'victory' : (cfg.dormant ? 'dormant' : null));
 		dead.next = dead;
 		dprev.next = dead; S.die1 = dfirst; S.dead = dead;
 		return S;
@@ -321,8 +466,9 @@
 	WolfAI.prototype.spawn = function (spawn, x, y, difficulty) {
 		var cfg;
 		if (spawn.type === 'boss') cfg = bossType(spawn.boss);
+		else if (spawn.type === 'ghost') cfg = ghostType(spawn.base);
 		else if (TYPES[spawn.type]) cfg = TYPES[spawn.type];
-		else return null; // corpse / ghost handled elsewhere
+		else return null; // corpses are decoration, not actors
 		var S = statesFor(cfg);
 		var a = {
 			cfg: cfg, cls: spawn.type,
@@ -341,6 +487,18 @@
 		// Derive the first frame from the state we actually start in. (Reading it
 		// from cfg.S instead used to yield NaN for any type without stand frames.)
 		a.sprite = a.state.rot ? a.state.spr + (spawn.rotate ? spawn.dirType : 0) : a.state.spr;
+		if (cfg.ghost) {
+			// SpawnGhosts: east-facing, ambush, and NOT shootable — the ghosts are
+			// invulnerable, and they are already chasing the moment the floor loads.
+			a.dir = 0;
+			a.flags.shootable = false;
+			a.flags.ambush = true;
+			a.flags.attackmode = true;
+			a.flags.active = true;
+			a.speed = cfg.chase;
+			a.state = S.chase1;
+			a.sprite = a.state.spr;
+		}
 		if (a.state.tics) a.ticcount = 1 + (this.env.rnd() % a.state.tics);
 		this.occ.set(this._key(a.tilex, a.tiley), a);
 		this.actors.push(a);
@@ -455,6 +613,26 @@
 		return true;
 	};
 
+	// SelectRunDir: the mirror image of SelectChaseDir — head AWAY from the player.
+	// Barnacle Wilhelm backs off once you get within four tiles (T_Will), which is
+	// what makes him a hit-and-run fight rather than a straight brawl.
+	WolfAI.prototype.selectRunDir = function (a) {
+		var p = this.env.player;
+		var dx = (p.x | 0) - a.tilex, dy = (p.y | 0) - a.tiley;
+		var d1 = NODIR, d2 = NODIR;
+		if (dx <= 0) d1 = 0; else d1 = 4;                 // run east if you're west
+		if (dy <= 0) d2 = 6; else d2 = 2;                 // run south if you're north
+		if (Math.abs(dy) > Math.abs(dx)) { var t = d1; d1 = d2; d2 = t; }
+		if (d1 !== NODIR) { a.dir = d1; if (this.tryWalk(a)) return; }
+		if (d2 !== NODIR) { a.dir = d2; if (this.tryWalk(a)) return; }
+		if (this.env.rnd() > 128) {
+			for (var td = 2; td <= 4; td++) { a.dir = td; if (this.tryWalk(a)) return; }
+		} else {
+			for (var td2 = 4; td2 >= 2; td2--) { a.dir = td2; if (this.tryWalk(a)) return; }
+		}
+		a.dir = NODIR;
+	};
+
 	WolfAI.prototype.selectChaseDir = function (a) {
 		var p = this.env.player;
 		var olddir = a.dir, turnaround = OPPOSITE[olddir];
@@ -500,6 +678,10 @@
 		var p = this.env.player;
 		if (!a.flags.hidden &&
 			Math.abs(a.x - p.x) <= MINACTORDIST && Math.abs(a.y - p.y) <= MINACTORDIST) {
+			// MoveObj: the Spectre has no ranged attack — it hurts you by walking
+			// into you, draining health for as long as it is on top of you, and
+			// then backs off out of your personal space.
+			if (a.cfg && a.cfg.contactDmg) this.env.hurtPlayer(Math.max(1, (this.tics * a.cfg.contactDmg) | 0), a);
 			a.x -= v[0] * move; a.y -= v[1] * move; // undo
 			return false;
 		}
@@ -519,9 +701,54 @@
 		}
 	};
 	WolfAI.prototype.action = function (a, key) {
-		if (key && key.indexOf('throw:') === 0) { this.throwProjectile(a, key.slice(6)); return; }
+		if (key && key.indexOf('throw:') === 0) {
+			// "throw:name" or "throw:name:±deg" — the offset fans the Death Knight's
+			// rockets. T_Launch also runs T_Shoot for him, so a projectile flagged
+			// withShot fires bullets on the same frame.
+			var parts = key.slice(6).split(':');
+			var pcfg = PROJ[parts[0]];
+			if (pcfg && pcfg.withShot) this.tShoot(a);
+			this.throwProjectile(a, parts[0], parts[1] ? parseFloat(parts[1]) : 0);
+			return;
+		}
 		switch (key) {
 			case 'shoot': this.tShoot(a); break;
+			case 'attack0': a.temp1 = 0; break;         // A_StartAttack
+			case 'relaunch': {
+				// A_Relaunch: count the throws. Three and it needs a breather;
+				// otherwise a coin flip decides between breaking off and throwing
+				// again (falling through keeps it on the launch frame).
+				a.temp1 = (a.temp1 || 0) + 1;
+				if (a.cfg.relaunch && a.temp1 >= a.cfg.relaunch && a.S.tired) {
+					a.temp1 = 0;
+					a.jumpTo = a.S.tired; a.jumpTics = a.S.tired.tics;
+				} else if (this.env.rnd() & 1) {
+					a.jumpTo = a.S.chase1; a.jumpTics = a.S.chase1.tics;
+				}
+				break;
+			}
+			case 'dormant': {
+				// A_Dormant: stay down until the player has stepped away and the tile
+				// is free, then get back up with full hitpoints.
+				var pp = this.env.player;
+				if ((Math.abs(pp.x - a.x) <= MINACTORDIST && Math.abs(pp.y - a.y) <= MINACTORDIST) ||
+					this.occAt(a.tilex, a.tiley)) {
+					a.jumpTo = a.state; a.jumpTics = a.state.tics;   // still blocked, wait
+					break;
+				}
+				a.flags.dead = false;
+				a.flags.shootable = true;
+				a.flags.attackmode = false;
+				a.flags.active = false;
+				a.hp = a.cfg.hp[a.diff] | 0;
+				a.dir = NODIR;
+				this.occ.set(this._key(a.tilex, a.tiley), a);
+				a.jumpTo = a.S.stand; a.jumpTics = a.S.stand.tics;
+				break;
+			}
+			case 'tired':
+				if (a.cfg.tiredFx != null && a.cfg.tiredFx >= 0 && this.env.fx) this.env.fx(a.cfg.tiredFx);
+				break;
 			case 'bite': this.tBite(a); break;
 			case 'scream': this.deathScream(a); break;
 			case 'bjyell': this.playAt(DIGI.YEAH, a); break;
@@ -574,7 +801,7 @@
 			var t16 = (this.tics * 16) | 0;
 			if (dist) chance = (t16 / dist) | 0; else chance = 300;
 			if (dist === 1 && Math.abs(a.x - p.x) < 1.25 && Math.abs(a.y - p.y) < 1.25) chance = 300;
-			if (env.rnd() < chance) { a.state = a.S.shoot1; a.ticcount = a.state.tics; return; }
+			if (a.S.shoot1 && env.rnd() < chance) { a.state = a.S.shoot1; a.ticcount = a.state.tics; return; }
 			dodge = true;
 		} else if (!isDog) {
 			a.flags.hidden = true;
@@ -596,7 +823,11 @@
 			}
 			if (move < a.distance) { if (!this.moveObj(a, move)) return; break; }
 			this._snap(a); move -= a.distance;
-			this.selectChaseDir(a); if (a.dir === NODIR) return;
+			// T_Will: at close quarters Barnacle Wilhelm breaks off and runs instead
+			// of closing in. Only bosses flagged runAway do this.
+			if (a.cfg.runAway && dist < 4) this.selectRunDir(a);
+			else this.selectChaseDir(a);
+			if (a.dir === NODIR) return;
 		}
 	};
 
@@ -624,6 +855,12 @@
 			env.hurtPlayer(dmg, a);
 		}
 		if (a.cfg.fire != null && a.cfg.fire >= 0) this.playAt(a.cfg.fire, a);
+		// T_UShoot: the Ubermutant's attack also mauls you if he is right on top of
+		// you — an extra flat 10 on top of whatever the shot itself did.
+		if (a.cfg.closeDmg) {
+			var cdx = Math.abs(a.tilex - (p.x | 0)), cdy = Math.abs(a.tiley - (p.y | 0));
+			if ((cdx > cdy ? cdx : cdy) <= 1) env.hurtPlayer(a.cfg.closeDmg, a);
+		}
 	};
 
 	WolfAI.prototype.tBite = function (a) {
@@ -684,7 +921,11 @@
 		a.dir = NODIR;
 		this.occ.delete(this._key(a.tilex, a.tiley));
 		a.state = a.S.die1; a.ticcount = a.state.tics || 0;
-		this.env.addScore(a.cfg.pts);
+		// FL_BONUS: the Spectre only ever pays out once, however often it is put
+		// down, and it is only counted as a kill the first time.
+		var firstKill = !a.bonusTaken;
+		if (firstKill) { a.bonusTaken = true; this.env.addScore(a.cfg.pts); }
+		else if (!a.cfg.dormant) this.env.addScore(a.cfg.pts);
 
 		// Boss endings (see the BOSS table): Hans and Gretel drop the gold key you
 		// need for the elevator; Schabbs, Giftmacher, Fat Face and the real Hitler end
@@ -696,7 +937,7 @@
 		// buildStates), because A_StartDeathCam does too — otherwise the intermission
 		// appears while the boss is still standing.
 
-		this.env.onKill && this.env.onKill(a);
+		if (firstKill || !a.cfg.dormant) this.env.onKill && this.env.onKill(a);
 	};
 
 	// A_HitlerMorph: replace a dying boss with his successor at the same spot. The new
@@ -914,11 +1155,14 @@
 	// T_SchabbThrow / T_GiftThrow / T_FakeFire all do the same thing: aim at where the
 	// player is *right now* and launch. The shot does not track you afterwards — it
 	// flies straight, so sidestepping is a real defence.
-	WolfAI.prototype.throwProjectile = function (from, kind) {
+	WolfAI.prototype.throwProjectile = function (from, kind, offsetDeg) {
 		var cfg = PROJ[kind];
 		if (!cfg) return null;
 		var p = this.env.player;
 		var ang = Math.atan2(p.y - from.y, p.x - from.x);
+		// T_Launch fans the Death Knight's two rockets a few degrees either side of
+		// your bearing, so they arrive as a spread rather than stacked on one line.
+		if (offsetDeg) ang += offsetDeg * Math.PI / 180;
 
 		var pr = {
 			cls: 'proj', kind: kind, cfg: cfg, proj: true,

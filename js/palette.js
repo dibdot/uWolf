@@ -37,6 +37,10 @@
 	];
 
 	// Return a Uint8ClampedArray of length 768 (r,g,b, ...).
+	// Spear of Destiny ships its own palette (sodpal.inc): it is identical to the
+	// Wolfenstein one except for two entries, so the active dataset variant may
+	// supply a sparse {index: [r,g,b]} override rather than a whole table. An
+	// explicit WOLF_PALETTE_OVERRIDE still wins over everything.
 	function getRGB() {
 		var src = root.WOLF_PALETTE_OVERRIDE || DEFAULT;
 		var out = new Uint8ClampedArray(768);
@@ -48,6 +52,16 @@
 			}
 		} else {
 			for (var k = 0; k < 768; k++) out[k] = DEFAULT[k];
+		}
+		if (!root.WOLF_PALETTE_OVERRIDE && root.WolfVariant && root.WolfVariant.active) {
+			var pv = root.WolfVariant.active.palette;
+			if (pv) {
+				for (var idx in pv) {
+					if (!pv.hasOwnProperty(idx)) continue;
+					var c = pv[idx], o = (idx | 0) * 3;
+					out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2];
+				}
+			}
 		}
 		return out;
 	}

@@ -1,9 +1,11 @@
 /*
  * main.js — menu / loading glue.
  *
- * Loads the registered Wolfenstein 3D (v1.4) data: VSWAP.WL6 / MAPHEAD.WL6 /
- * GAMEMAPS.WL6, plus optional VGAGRAPH.WL6 / VGAHEAD.WL6 / VGADICT.WL6 for the
- * original status bar. Files are matched by name; only the WL6 set is targeted.
+ * Detects which datasets are present in the page folder — Wolfenstein 3D
+ * (VSWAP/MAPHEAD/GAMEMAPS.WL6, + optional VGAGRAPH/VGAHEAD/VGADICT/AUDIOHED/
+ * AUDIOT.WL6) and/or Spear of Destiny (the same names with a .SOD extension) —
+ * and loads the selected one, activating its engine profile via WolfVariant.
+ * Files are matched case-insensitively.
  */
 (function () {
 	'use strict';
@@ -22,11 +24,10 @@
 			sel.innerHTML = '';
 			levels.forEach(function (lv) {
 				var o = document.createElement('option');
-				// Levels are grouped ten per episode; the game itself counts floors
-				// within an episode, so label them the same way.
-				var ep = ((lv.index / 10) | 0) + 1, fl = (lv.index % 10) + 1;
+				// The game labels floors per dataset (E# F# for Wolfenstein's
+				// episodes, plain "Floor #" for Spear's single campaign).
 				o.value = lv.index;
-				o.textContent = 'E' + ep + ' F' + fl + ' — ' + lv.name;
+				o.textContent = game._floorLabel(lv.index) + ' — ' + lv.name;
 				sel.appendChild(o);
 			});
 			setupMusic(buffers);
@@ -42,20 +43,22 @@
 	}
 
 	// --- Load from the web server (same folder as this page) ---
-	var CANDIDATES = {
-		VSWAP: ['VSWAP.WL6', 'vswap.wl6'],
-		MAPHEAD: ['MAPHEAD.WL6', 'maphead.wl6'],
-		GAMEMAPS: ['GAMEMAPS.WL6', 'gamemaps.wl6']
-	};
-	// Optional — only needed for the original status bar / BJ face.
-	var CANDIDATES_OPT = {
-		VGAGRAPH: ['VGAGRAPH.WL6', 'vgagraph.wl6'],
-		VGAHEAD: ['VGAHEAD.WL6', 'vgahead.wl6'],
-		VGADICT: ['VGADICT.WL6', 'vgadict.wl6'],
-		// Only needed for the music and the FM sound effects.
-		AUDIOHED: ['AUDIOHED.WL6', 'audiohed.wl6'],
-		AUDIOT: ['AUDIOT.WL6', 'audiot.wl6']
-	};
+	// Candidate file names are matched case-insensitively, per dataset extension:
+	// WL6 for Wolfenstein 3D, SOD for Spear of Destiny. The selected dataset also
+	// switches the engine's numeric profile via WolfVariant (see variants.js).
+	var variantSel = $('variantSel');
+
+	function candidates(ext) {
+		var lo = ext.toLowerCase();
+		var pair = function (stem) { return [stem + '.' + ext, (stem + '.' + lo)]; };
+		return {
+			req: { VSWAP: pair('VSWAP'), MAPHEAD: pair('MAPHEAD'), GAMEMAPS: pair('GAMEMAPS') },
+			opt: {
+				VGAGRAPH: pair('VGAGRAPH'), VGAHEAD: pair('VGAHEAD'), VGADICT: pair('VGADICT'),
+				AUDIOHED: pair('AUDIOHED'), AUDIOT: pair('AUDIOT')
+			}
+		};
+	}
 
 	function fetchFirst(list) {
 		var i = 0;
@@ -71,27 +74,63 @@
 		});
 	}
 
+	// Probe which datasets have their required VSWAP present, so the selector only
+	// offers what is actually in the folder (and auto-picks when only one is).
+	function probe(ext) { return fetchFirst(candidates(ext).req.VSWAP).then(function () { return true; }).catch(function () { return false; }); }
+
+	function currentVariantId() { return variantSel ? variantSel.value : 'WL6'; }
+
 	function loadFromServer() {
-		say('Loading game data…');
+		var id = currentVariantId();
+		var v = window.WolfVariant.get(id) || window.WolfVariant.active;
+		window.WolfVariant.use(v.id);           // activate the numeric profile first
+		var ext = v.ext;
+		say('Loading ' + v.name + ' data…');
+		var C = candidates(ext);
 		var optional = function (list) { return fetchFirst(list).catch(function () { return null; }); };
 		Promise.all([
-			fetchFirst(CANDIDATES.VSWAP), fetchFirst(CANDIDATES.MAPHEAD), fetchFirst(CANDIDATES.GAMEMAPS),
-			optional(CANDIDATES_OPT.VGAGRAPH), optional(CANDIDATES_OPT.VGAHEAD), optional(CANDIDATES_OPT.VGADICT),
-			optional(CANDIDATES_OPT.AUDIOHED), optional(CANDIDATES_OPT.AUDIOT)
+			fetchFirst(C.req.VSWAP), fetchFirst(C.req.MAPHEAD), fetchFirst(C.req.GAMEMAPS),
+			optional(C.opt.VGAGRAPH), optional(C.opt.VGAHEAD), optional(C.opt.VGADICT),
+			optional(C.opt.AUDIOHED), optional(C.opt.AUDIOT)
 		])
 			.then(function (b) {
-				var buffers = { VSWAP: b[0], MAPHEAD: b[1], GAMEMAPS: b[2] };
+				var buffers = { VSWAP: b[0], MAPHEAD: b[1], GAMEMAPS: b[2], variant: v.id };
 				if (b[3] && b[4] && b[5]) { buffers.VGAGRAPH = b[3]; buffers.VGAHEAD = b[4]; buffers.VGADICT = b[5]; }
 				if (b[6] && b[7]) { buffers.AUDIOHED = b[6]; buffers.AUDIOT = b[7]; }
 				afterLoad(buffers);
 			})
 			.catch(function () {
-				say('Game data not found in this folder. Add VSWAP.WL6, MAPHEAD.WL6 and GAMEMAPS.WL6 here, then press Retry.', true);
+				say('No ' + v.name + ' data here. Add VSWAP.' + ext + ', MAPHEAD.' + ext +
+					' and GAMEMAPS.' + ext + ' to this folder, then press Retry.', true);
 			});
 	}
 
+	// On open: probe both datasets, populate the selector with the ones present,
+	// then load. If only one is present it is auto-selected; if none, prompt.
+	function initDatasets() {
+		Promise.all([probe('WL6'), probe('SOD')]).then(function (have) {
+			var present = [];
+			if (have[0]) present.push('WL6');
+			if (have[1]) present.push('SOD');
+			if (variantSel) {
+				variantSel.innerHTML = '';
+				window.WolfVariant.list().forEach(function (v) {
+					var o = document.createElement('option');
+					o.value = v.id;
+					o.textContent = v.name;
+					o.disabled = present.indexOf(v.id) < 0;
+					variantSel.appendChild(o);
+				});
+				if (present.length) variantSel.value = present[0];
+			}
+			if (present.length) loadFromServer();
+			else say('No game data found. Add your VSWAP/MAPHEAD/GAMEMAPS (.WL6 for Wolfenstein or .SOD for Spear of Destiny) here, then press Retry.', true);
+		});
+	}
+
+	if (variantSel) variantSel.addEventListener('change', loadFromServer);
 	$('btnFetch').addEventListener('click', loadFromServer);
-	loadFromServer();   // auto-load from the webroot on open
+	initDatasets();   // auto-detect + load from the webroot on open
 
 	// --- Start / HUD ---
 	// --- Music (OPL2 / FM synthesis) ---
@@ -373,11 +412,8 @@
 
 		box.classList.toggle('hidden', !any);
 
-		// Number the sections in the order they actually appear.
-		var n = 2;
-		if (resumable) n++;                                  // the Resume button sits first
-		if (any) { $('savesLabel').textContent = n + ' · Continue a saved game'; n++; }
-		$('newGameLabel').textContent = n + ' · Start a new game';
+		if (any) $('savesLabel').textContent = 'Continue a saved game';
+		$('newGameLabel').textContent = 'Start a new game';
 	}
 
 	// Basic feature note.

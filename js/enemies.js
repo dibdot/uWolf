@@ -14,7 +14,12 @@
 (function (root) {
 	'use strict';
 
-	// Stand / walk-frame-1 base sprite indices (8 rotation frames each).
+	// Stand / walk-frame-1 base sprite indices (8 rotation frames each). These are
+	// the WL6 defaults; a dataset variant (e.g. Spear of Destiny) replaces BASE /
+	// GRD_DEAD / SINGLE via WolfVariant below, and ALERT / BLOCKS are rebuilt from
+	// the active BASE. The trooper spawn CODES are shared across WL6 and SOD
+	// (Wolf4SDL ScanInfoPlane is outside its SPEAR conditional), so only the base
+	// sprite indices differ there; the single-frame boss codes differ per dataset.
 	var BASE = {
 		guard: 50,    // SPR_GRD_S_1
 		officer: 238, // SPR_OFC_S_1
@@ -24,43 +29,10 @@
 	};
 	var GRD_DEAD = 95; // SPR_GRD_DEAD (decorative corpse, single frame)
 
-	// Sight/alert digitized-sound chunk per enemy base (WL6 wolfdigimap indices).
-	// -1 = no vocalisation. Used only to make the digi sounds audible while
-	// exploring; it is a sound cue, not combat AI.
-	var ALERT = {};
-	ALERT[BASE.guard] = 0;    // HALTSND    ("Halt!")
-	ALERT[BASE.officer] = 8;  // GUTENTAGSND
-	ALERT[BASE.ss] = 7;       // SCHUTZADSND
-	ALERT[BASE.dog] = 1;      // DOGBARKSND
-	ALERT[BASE.mutant] = -1;  // mutants are silent
-
-	// 4-directional trooper blocks: [firstCode, base, type, minDiff, patrol].
-	// Each block spans firstCode..firstCode+3 (dir 0..3). minDiff mirrors
-	// ScanInfoPlane: base blocks spawn at any skill, the second set needs medium,
-	// the third needs hard. patrol=true means the actor walks a set route.
-	var G = 'guard', O = 'officer', S = 'ss', D = 'dog', M = 'mutant';
-	var BLOCKS = [
-		// guard
-		[108, BASE.guard, G, 0, 0], [112, BASE.guard, G, 0, 1], [144, BASE.guard, G, 2, 0],
-		[148, BASE.guard, G, 2, 1], [180, BASE.guard, G, 3, 0], [184, BASE.guard, G, 3, 1],
-		// officer
-		[116, BASE.officer, O, 0, 0], [120, BASE.officer, O, 0, 1], [152, BASE.officer, O, 2, 0],
-		[156, BASE.officer, O, 2, 1], [188, BASE.officer, O, 3, 0], [192, BASE.officer, O, 3, 1],
-		// ss
-		[126, BASE.ss, S, 0, 0], [130, BASE.ss, S, 0, 1], [162, BASE.ss, S, 2, 0],
-		[166, BASE.ss, S, 2, 1], [198, BASE.ss, S, 3, 0], [202, BASE.ss, S, 3, 1],
-		// dog
-		[134, BASE.dog, D, 0, 0], [138, BASE.dog, D, 0, 1], [170, BASE.dog, D, 2, 0],
-		[174, BASE.dog, D, 2, 1], [206, BASE.dog, D, 3, 0], [210, BASE.dog, D, 3, 1],
-		// mutant
-		[216, BASE.mutant, M, 0, 0], [220, BASE.mutant, M, 0, 1], [234, BASE.mutant, M, 2, 0],
-		[238, BASE.mutant, M, 2, 1], [252, BASE.mutant, M, 3, 0], [256, BASE.mutant, M, 3, 1]
-	];
-
-	// Single-frame spawns: {base, type[, boss]}. Corpses are inert; ghosts and
+	// WL6 single-frame spawns: {base, type[, boss]}. Corpses are inert; ghosts and
 	// bosses are actors. Boss kinds map to their combat stats in ai.js.
-	var SINGLE = {
-		124: { base: GRD_DEAD, type: 'corpse' },       // dead guard
+	var SINGLE_WL6 = {
+		124: { base: 95, type: 'corpse' },             // dead guard (SPR_GRD_DEAD)
 		214: { base: 296, type: 'boss', boss: 'hans' },
 		197: { base: 385, type: 'boss', boss: 'gretel' },
 		215: { base: 360, type: 'boss', boss: 'gift' },
@@ -71,6 +43,62 @@
 		224: { base: 288, type: 'ghost' }, 225: { base: 292, type: 'ghost' },
 		226: { base: 290, type: 'ghost' }, 227: { base: 294, type: 'ghost' }
 	};
+	var SINGLE = SINGLE_WL6;
+
+	// Sight/alert digitized-sound chunk per enemy base (wolfdigimap indices; the
+	// shared head is identical across WL6 and SOD). Rebuilt from BASE. -1 = silent.
+	// 4-directional trooper blocks: [firstCode, base, type, minDiff, patrol]; each
+	// block spans firstCode..firstCode+3 (dir 0..3). minDiff mirrors ScanInfoPlane.
+	var G = 'guard', O = 'officer', S = 'ss', D = 'dog', M = 'mutant';
+	var ALERT, BLOCKS;
+	function rebuild(digi) {
+		// The exploration sight-cue is resolved from the active dataset's digi map,
+		// so it survives a dataset switch. Officer uses GUTENTAG where present (WL6)
+		// and falls back to SPION (SOD has no GUTENTAG digi, and slot 8 there is
+		// boss-fire — the cause of "alerting a room plays the boss").
+		var pick = function (v, d) { return (typeof v === 'number') ? v : d; };
+		ALERT = {};
+		if (digi) {
+			var ofc = (typeof digi.GUTENTAG === 'number' && digi.GUTENTAG >= 0) ? digi.GUTENTAG : pick(digi.SPION, -1);
+			ALERT[BASE.guard] = pick(digi.HALT, 0);
+			ALERT[BASE.officer] = ofc;
+			ALERT[BASE.ss] = pick(digi.SCHUTZ, 7);
+			ALERT[BASE.dog] = pick(digi.DOGBARK, 1);
+		} else {
+			ALERT[BASE.guard] = 0;    // HALTSND
+			ALERT[BASE.officer] = 8;  // GUTENTAGSND (WL6 default)
+			ALERT[BASE.ss] = 7;       // SCHUTZADSND
+			ALERT[BASE.dog] = 1;      // DOGBARKSND
+		}
+		ALERT[BASE.mutant] = -1;  // mutants are silent
+		BLOCKS = [
+			[108, BASE.guard, G, 0, 0], [112, BASE.guard, G, 0, 1], [144, BASE.guard, G, 2, 0],
+			[148, BASE.guard, G, 2, 1], [180, BASE.guard, G, 3, 0], [184, BASE.guard, G, 3, 1],
+			[116, BASE.officer, O, 0, 0], [120, BASE.officer, O, 0, 1], [152, BASE.officer, O, 2, 0],
+			[156, BASE.officer, O, 2, 1], [188, BASE.officer, O, 3, 0], [192, BASE.officer, O, 3, 1],
+			[126, BASE.ss, S, 0, 0], [130, BASE.ss, S, 0, 1], [162, BASE.ss, S, 2, 0],
+			[166, BASE.ss, S, 2, 1], [198, BASE.ss, S, 3, 0], [202, BASE.ss, S, 3, 1],
+			[134, BASE.dog, D, 0, 0], [138, BASE.dog, D, 0, 1], [170, BASE.dog, D, 2, 0],
+			[174, BASE.dog, D, 2, 1], [206, BASE.dog, D, 3, 0], [210, BASE.dog, D, 3, 1],
+			[216, BASE.mutant, M, 0, 0], [220, BASE.mutant, M, 0, 1], [234, BASE.mutant, M, 2, 0],
+			[238, BASE.mutant, M, 2, 1], [252, BASE.mutant, M, 3, 0], [256, BASE.mutant, M, 3, 1]
+		];
+	}
+	rebuild();
+
+	// Swap the sprite bases / boss codes for the active dataset (WL6 keeps the
+	// built-ins; SOD supplies its own). BASE is also re-exported so ai.js and
+	// game.js see the active values. The digi map comes from the variant directly
+	// (not SoundManager) because enemies.js is configured before sound.js is.
+	if (root.WolfVariant) {
+		root.WolfVariant.onUse(function (v) {
+			var e = v && v.enemies;
+			if (e) { BASE = e.BASE; GRD_DEAD = e.GRD_DEAD; SINGLE = e.SINGLE; }
+			else { BASE = { guard: 50, officer: 238, ss: 138, mutant: 187, dog: 99 }; GRD_DEAD = 95; SINGLE = SINGLE_WL6; }
+			rebuild(v && v.digi);
+			if (root.WolfEnemies) root.WolfEnemies.BASE = BASE;
+		});
+	}
 
 	// Decode a plane-1 tile code into a spawn descriptor, or null if it is not an
 	// enemy/actor spawn. `minDiff` mirrors ScanInfoPlane so callers can filter by

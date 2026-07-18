@@ -253,6 +253,12 @@ code {
 	font-size: 13px;
 }
 
+/* The New Game heading is a section title like "Continue a saved game" — keep it
+   at heading size, not the 13px the wrapping label above would otherwise impose. */
+#newGameLabel {
+	font-size: 16px;
+}
+
 #levelSel {
 	flex: 1 1 200px;
 	padding: 11px;
@@ -561,4 +567,31 @@ code {
 	.panel { padding: 18px 14px 16px; }
 	.step { gap: 10px; }
 	.files-list code { font-size: 11px; padding: 2px 5px; }
+}
+
+/* Game Variant selector: gold-on-dark, spanning the section width. */
+.variant-sel {
+	display: block;
+	width: 100%;
+	margin: 8px 0 4px;
+	padding: 8px 9px;
+	background: #0e0e0a;
+	color: var(--accent-lit);
+	border: 1px solid var(--accent);
+	border-radius: 3px;
+	font: inherit;
+	font-weight: 700;
+	letter-spacing: .02em;
+}
+.variant-sel:focus {
+	outline: none;
+	border-color: var(--accent-lit);
+	box-shadow: 0 0 0 2px rgba(183, 144, 46, 0.25);
+}
+.variant-sel option {
+	background: #0e0e0a;
+	color: var(--accent-lit);
+}
+.variant-sel option:disabled {
+	color: var(--dim);
 }

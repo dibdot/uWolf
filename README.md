@@ -16,38 +16,37 @@ The engine only *interprets* them.
 
 Copy these from your registered **Wolfenstein 3D v1.4 (GT/ID/Activision)** into
 the page's folder (your uhttpd Wolfenstein root). File names are matched
-case-insensitively.
+case-insensitively. The same list applies to **Spear of Destiny** with a `.SOD`
+extension instead of `.WL6`; both sets can sit side by side and the menu lets
+you choose (see the Spear of Destiny section).
 
 Don't own a copy? Wolfenstein 3D can be bought (around €4.99) e.g. on GOG:
-<https://www.gog.com/en/game/wolfenstein_3d> — the `.WL6` data files are in the
+<https://www.gog.com/en/game/wolfenstein_3d> — the `.WL6` adn `.SOD` data files are in the
 installed game folder.
 
 Required (the game will not start without all three):
 
-- `VSWAP.WL6` — wall textures, sprites and digitized sound effects
-- `MAPHEAD.WL6` — map directory / RLEW tag
-- `GAMEMAPS.WL6` — the level data
+- `VSWAP.<WL6|SOD>` — wall textures, sprites and digitized sound effects
+- `MAPHEAD.<WL6|SOD>` — map directory / RLEW tag
+- `GAMEMAPS.<WL6|SOD>` — the level data
 
 Recommended but optional (only for the original status bar and BJ face; without them a small
 built-in HUD is used):
 
-- `VGAGRAPH.WL6` — UI graphics (status bar, face, number/weapon/key icons)
-- `VGAHEAD.WL6` — chunk offsets into `VGAGRAPH`
-- `VGADICT.WL6` — Huffman dictionary for `VGAGRAPH`
+- `VGAGRAPH.<WL6|SOD>` — UI graphics (status bar, face, number/weapon/key icons)
+- `VGAHEAD.<WL6|SOD>` — chunk offsets into `VGAGRAPH`
+- `VGADICT.<WL6|SOD>` — Huffman dictionary for `VGAGRAPH`
 
 Optional (only for the music):
 
-- `AUDIOHED.WL6` — chunk offsets into `AUDIOT`
-- `AUDIOT.WL6` — the FM instruments, the sound effects and the 27 music tracks
+- `AUDIOHED.<WL6|SOD>` — chunk offsets into `AUDIOT`
+- `AUDIOT.<WL6|SOD>` — the FM instruments, the sound effects and the 27 music tracks
 
 With those two files you also get the **FM sound effects** — the pickup, key,
 locked-door and player-death sounds. Those were never digitised (they are not in
 `VSWAP` at all), so without an OPL2 there was nothing to play but a synthesised
 stand-in. They are independent of the **Music** toggle, exactly as the original keeps
 its music and sound settings apart.
-
-The chunk/sprite numbering is the WL6 layout; other releases (shareware `.WL1`,
-Spear of Destiny `.SOD`, …) are not supported.
 
 ## What it does
 
@@ -75,6 +74,16 @@ Spear of Destiny `.SOD`, …) are not supported.
   weapons and your spare ammo (back to the pistol and 8 rounds) while the score
   is kept. Lives is decremented *before* the check, so you keep playing while the
   bar shows 0 — the next death after that ends the run on a GAME OVER screen.
+- **Scoring as the original counts it**: an extra life every 40,000 points
+  (the threshold walks up, so one fat bonus can hand out several), and the
+  end-of-floor payout — 500 points per whole second saved against the floor's
+  par time, plus 10,000 for each of kill/secret/treasure finished at 100%. The
+  par-time tables for both games come from `wl_inter.cpp`; boss and secret floors
+  have no par, exactly as in the original.
+- **The four Wolfenstein ghosts** (Blinky, Pinky, Clyde, Inky) on the secret
+  floor: dog-speed, ambush-flagged, **invulnerable**, and harmful only by touch.
+  They count toward the kill total *and* the kill count on spawn, so being unable
+  to shoot them never keeps you off 100%.
 - **Difficulty levels** (all four skill settings) affecting enemy hitpoints,
   reaction/aim, damage taken, and which actors spawn; plus a **God-mode** toggle.
   Enemy *count* follows the original exactly: the base placements spawn at every
@@ -105,8 +114,8 @@ Spear of Destiny `.SOD`, …) are not supported.
   Audio
 - **FM music**, decoded from your `AUDIOT` and played through an OPL2 (YM3812)
   synthesiser written for this project. Optional: tick **Music** on the menu, and
-  supply `AUDIOHED.WL6` + `AUDIOT.WL6`. Each floor gets its own track, from the same
-  `songs[]` table the original uses.
+  supply `AUDIOHED.<WL6|SOD>` + `AUDIOT.<WL6|SOD>`. Each floor gets its own track,
+  from the same `songs[]` table the original uses.
 - Solid-colour floor/ceiling (as in the original)
 - **The original VGAGRAPH status bar and BJ face** (health-driven, with the
   number/weapon/key icons), when you also supply `VGAGRAPH`/`VGAHEAD`/`VGADICT`;
@@ -160,6 +169,10 @@ clearing the site data removes them.
   into a slot (or overwrite/delete an existing one). Saves are listed with
   floor, health, score and difficulty.
 
+Slots are **namespaced per data set**, so a Wolfenstein run and a Spear run never
+overwrite each other, and a save carries the game it was made in — loading one
+into the other game is refused rather than silently producing nonsense.
+
 A save is a JSON snapshot of the run: floor, player position and facing, health,
 ammo, weapons, keys, score and lives, plus door states, the pushwalls you have
 already opened, the flipped elevator switch, which items you picked up, and where
@@ -171,96 +184,33 @@ One deliberate simplification: an actor's mid-animation frame is not preserved.
 On load, enemies resume cleanly as dead, as hunting you, or as originally placed
 — an enemy caught mid-shot won't finish that particular shot.
 
-## What it does NOT do
+## Console helpers
 
-- **Spear of Destiny.** Only the registered WL6 data set is targeted; `.SOD` numbers
-  its chunks differently and would need its own tables.
+The page exposes the running game as `window.game`, and a few diagnostics hang
+off it. They were written while tracking real bugs and are kept because they make
+the next one cheaper to find:
 
-### Combat: what is faithful vs. simplified
+```js
+game.dumpSprite(421)          // how a sprite page decodes: column span, colour
+                              // histogram, and an ASCII view of the 64x64 result
+game.dumpSprite()             // ...for the weapon currently in hand
+game.dumpSpritePosts(421, 25) // the RAW post structure and palette indices of a
+                              // sprite column, straight out of VSWAP
+game.dumpMap()                // the decoded geometry around you as ASCII
+game.dumpActors()             // live actors: facing, rotation frame, sprite, state
+game.sound.count() / play(i)  // walk the digitised-sound directory
+```
 
-Faithful to the Wolf4SDL source: the actor state tables (frames and 70 Hz
-timings), sighting and per-class reaction times, `SelectChaseDir`/`TryWalk`/
-`MoveObj` grid movement, the `T_Shoot` hit-probability and damage formulas,
-`DamageActor`/`KillActor` (including the double-damage surprise bonus and
-per-difficulty hitpoints), and the player `GunAttack`/`KnifeAttack` damage
-tables and baby-mode damage discount. A body left lying in a doorway props that
-door open — dying sets `FL_NONMARK`, so the corpse keeps re-marking its tile and
-`CloseDoor()` refuses to close on it, while the walk tests ignore it because it is
-no longer shootable. Patrolling guards follow the map's
-scripted routes: the invisible turn-arrow tiles (`ICONARROWS`, plane-1 codes
-90–97) steer them exactly as `SelectPathDir` does, so they walk the loops the
-level designers laid out — opening doors along the way — instead of wandering.
+Turning is tunable at runtime, since taste varies:
 
-Deliberately simplified (and easy to extend later):
+```js
+game.turnSpeed   = 1.7        // radians/second at full tilt
+game.turnRampMin = 0.15       // fraction of that a fresh tap starts at
+game.turnRampRate = 4.0       // how quickly it eases up to full speed
+```
 
-- **Line-of-sight treats a door as see-through once it is roughly half open**,
-  rather than testing the exact door-slab intercept.
-- **Each boss fights his own way.** Hans, Gretel, Mecha Hitler and Adolf use guns;
-  **Schabbs throws syringes**, **Giftmacher fires rockets**, **Fat Face** opens with a
-  rocket and follows up with chainguns, and **Fake Hitler** throws a volley of eight
-  fireballs. The projectiles fly straight at where you *were* when they were thrown —
-  they do not track, so sidestepping is a real defence — and a rocket that hits a wall
-  explodes. Everything else is per-boss and taken from the source:
-  frames, sounds (each has his own taunt and death cry), points, the real
-  `starthitpoints` (Schabbs has 2400 on hard, Fake Hitler only 500 — they are
-  nowhere near each other), and how the floor ends:
-  - **Hans** (episode 1) and **Gretel** (episode 5) drop the **gold key**. You unlock
-    the door with it and walk out of the castle onto the **exit tile** — which is
-    also the only place B.J. ever says anything.
-  - **Schabbs**, **Giftmacher** and **Fat Face** end the floor the moment they die
-    (`A_StartDeathCam` → `ex_victorious`). Those floors have no elevator at all.
-  - **Mecha Hitler** ends nothing: `A_HitlerMorph` puts **Adolf** himself in his
-    place — faster than any other boss, a five-shot burst, seven frames to die —
-    and only *his* death ends the floor.
-  - **Fake Hitler** is none of the above: just a very tough regular enemy.
-
-  The kill itself doesn't end the floor either — the ending hangs off the *last*
-  death frame, exactly as `A_StartDeathCam` does, so the boss finishes going down
-  before the intermission appears.
-- **Sight and death cries are per class**, each mapped to the digi chunk the
-  original plays: the guard picks from eight death screams (`US_RndT()%8` — and
-  chunk 13 sits in that pool twice, so it genuinely is twice as likely), and every
-  boss has one of his own. The mutant is the only enemy that spots you in complete
-  silence.
-
-  The sound *names* are id's own identifiers rather than transcriptions, and the two
-  don't always line up: `DEATHSCREAM2` and `DEATHSCREAM3` both point at chunk 13, and
-  `DEATHSCREAM6` is simply called `FART`. This port uses the identifiers only to pick
-  the right chunk — what a given sample actually says is a question for your ears, not
-  for the source code. (The samples are 8-bit mono at 7042 Hz and shouted; several of
-  them are famously hard to make out.)
-- **The secret-floor easter egg is in.** On the secret floor only, every regular
-  enemy has a 1-in-256 chance of dying on `DEATHSCREAM6` instead of his usual cry.
-  The source's own name for that sound is, and we quote, `FART`. Bosses are
-  excluded.
-- **Alerting uses the original's area system**, not a distance rule. Every floor tile
-  carries the room it belongs to (plane-0 codes from `AREATILE`), each door joins two
-  rooms, and a recursive flood from the player's room marks everything currently
-  reachable *through open doors*. `SightPlayer()` opens with
-  `if (!areabyplayer[ob->areanumber]) return false;` — which gates hearing **and**
-  seeing: a guard behind a shut door will not notice you even in a straight line. The
-  subtlety worth knowing: a door connects the two rooms the moment it *starts opening*
-  and disconnects only once it is shut **all the way**. That is why firing just after
-  walking through a door still wakes the room behind it — and why it looks as though
-  the sound went through a closed door.
-- **The death-cam and B.J.'s victory run.** Killing a floor-ending boss swings the
-  view round to where you were standing, turns it to face him and backs it out of the
-  wall, so you watch him go down ("LET'S SEE THAT AGAIN!") before the stats appear.
-  And stepping onto the castle exit tile no longer just plays a sound: B.J. himself
-  runs out — six tiles, following the map's turn arrows — jumps, and *that* is when he
-  says the only word he ever says.
-- **Floor progression is per episode**, not a flat +1: ten floors each (eight
-  normal, the boss floor, then the secret floor). The elevator takes you to the
-  next floor; standing on the *alternate* elevator tile takes you to the secret
-  floor instead; leaving the secret floor drops you back at `ElevatorBackTo[]`
-  = 1,1,7,3,5,3. Killing the boss — or stepping on the castle **exit tile**
-  (plane-1 code 99), which is how the Hans and Gretel floors finish and where
-  B.J.'s one and only line comes from — ends the whole **episode**.
-
-The player's POV weapon (knife / pistol / machine gun / chain gun) **is** drawn,
-using the ready/attack frames straight from your `VSWAP` sprite pages. The
-sprite-page numbering is the registered WL6 layout, like the rest of the actor
-sprites here.
+Turning eases in rather than snapping to full speed: a short tap moves a fraction
+as far as a held key, which is what makes fine aiming possible at 60 fps.
 
 ## Layout
 
@@ -270,6 +220,7 @@ uWolf/
   favicon.ico       16/32/48 px pixel-art wolf head (also favicon.svg)
   favicon.svg
   css/style.css
+  js/variants.js    per-dataset tables (Wolfenstein 3D vs. Spear of Destiny)
   js/palette.js     256-colour VGA palette (+ runtime override hook)
   js/wl_formats.js  VSWAP + Carmack/RLEW map parsing, texture/sprite/sound decode
   js/raycaster.js   the renderer
@@ -284,8 +235,9 @@ uWolf/
 ```
 
 Optional data files for the original status bar/face: `VGAGRAPH`, `VGAHEAD`,
-`VGADICT` (same variant as the rest, e.g. `.WL6`). Copy them next to
-`index.html` alongside VSWAP.WL6 / MAPHEAD.WL6 / GAMEMAPS.WL6.
+`VGADICT` (same extension as the rest, `.WL6` or `.SOD`). Copy them next to
+`index.html` alongside `VSWAP` / `MAPHEAD` / `GAMEMAPS`. Both data sets may live
+in the same folder; the menu then lets you pick which game to load.
 
 ## Deploy on OpenWrt (uhttpd)
 
@@ -295,9 +247,9 @@ each:
 
 ```sh
 mkdir -p /mnt/data/uWolf      # your USB/NVMe mount
-# copy the uWolf/ contents + your WL6 data files here, next to index.html:
-#   /mnt/data/uWolf/VSWAP.WL6  /mnt/data/uWolf/MAPHEAD.WL6  /mnt/data/uWolf/GAMEMAPS.WL6
-#   /mnt/data/uWolf/VGAGRAPH.WL6  /mnt/data/uWolf/VGAHEAD.WL6  /mnt/data/uWolf/VGADICT.WL6
+# copy the uWolf/ contents + your <WL6|SOD> data files here, next to index.html:
+#   /mnt/data/uWolf/VSWAP.<WL6|SOD>  /mnt/data/uWolf/MAPHEAD.<WL6|SOD>  /mnt/data/uWolf/GAMEMAPS.<WL6|SOD>
+#   /mnt/data/uWolf/VGAGRAPH.<WL6|SOD>  /mnt/data/uWolf/VGAHEAD.<WL6|SOD>  /mnt/data/uWolf/VGADICT.<WL6|SOD>
 ```
 
 Add an instance to `/etc/config/uhttpd`:

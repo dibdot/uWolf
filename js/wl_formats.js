@@ -223,7 +223,14 @@
 				var endY = dv.getUint16(p, true);       // *2 encoded
 				if (endY === 0) break;
 				endY >>= 1;
-				var pixOfs = dv.getUint16(p + 2, true);  // base into pixel pool
+				// SIGNED, exactly as Wolf4SDL declares it (`short newstart`). id's
+				// sprite chunks put the pixel pool BEFORE the per-column command
+				// lists, so for posts low down in a column `newstart = poolOfs -
+				// startY` goes negative. Reading it unsigned turns e.g. -26 into
+				// 65510 and the pixel fetch lands far outside the chunk, pulling in
+				// bytes from a neighbouring sprite (the stray blue speckles on the
+				// weapon sprites).
+				var pixOfs = dv.getInt16(p + 2, true);   // base into pixel pool
 				var startY = dv.getUint16(p + 4, true) >> 1;
 				p += 6;
 				for (var y = startY; y < endY; y++) {

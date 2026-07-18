@@ -1502,73 +1502,95 @@
 			ctx.textBaseline = 'middle';
 			var cyC = H / 2;
 
-			ctx.textAlign = 'center';
-			ctx.fillStyle = '#ffd24a'; ctx.font = 'bold ' + Math.max(16, H * 0.075) + 'px monospace';
+			// Everything on this screen is laid out from the block's ACTUAL height
+			// rather than from fixed offsets. The rows are variable now — TIME and
+			// BONUS only appear when they apply — and the old fixed positions ran the
+			// SCORE line straight into the "press a key" prompt once six rows showed.
+			var titleSize = Math.max(16, H * 0.075);
+			var lineSize = Math.max(11, H * 0.045);
+			var promptSize = Math.max(10, H * 0.038);
+
+			// Title text.
+			var title;
 			if (this._episodeDone) {
-				// Spear has no episodes, so "EPISODE n COMPLETE" is meaningless there
-				// (and the hardcoded 10 used to turn floor 21 into "EPISODE 3").
 				if (EPISODES) {
-					ctx.fillText('EPISODE ' + this._episodeNumber() + ' COMPLETE', W / 2, cyC - H * 0.24);
+					title = 'EPISODE ' + this._episodeNumber() + ' COMPLETE';
 				} else {
 					var vn = (root.WolfVariant && root.WolfVariant.active) ? root.WolfVariant.active.name : 'MISSION';
-					ctx.fillText(vn.toUpperCase() + ' COMPLETE', W / 2, cyC - H * 0.24);
+					title = vn.toUpperCase() + ' COMPLETE';
 				}
 			} else {
-				ctx.fillText('FLOOR ' + st.floor + ' COMPLETE', W / 2, cyC - H * 0.24);
+				title = 'FLOOR ' + st.floor + ' COMPLETE';
 			}
 
 			// The stats are laid out in fixed character columns and drawn LEFT-aligned
-			// from a common origin. Centring each row as one string (which is what this
-			// used to do) makes every column drift, because the rows differ in length.
-			ctx.font = 'bold ' + Math.max(11, H * 0.045) + 'px monospace';
+			// from a common origin. Centring each row as one string makes every column
+			// drift, because the rows differ in length.
+			ctx.font = 'bold ' + lineSize + 'px monospace';
 			var charW = ctx.measureText('0').width;          // monospace: every glyph is this wide
 			var LBL = 9, GOT = 3, SEP = 3, TOT = 3, PCT = 6; // column widths, in characters
 			var lineChars = LBL + GOT + SEP + TOT + PCT;
 			var x0 = W / 2 - (lineChars * charW) / 2;
 			var pctX = x0 + (LBL + GOT + SEP + TOT) * charW; // where the percentage column starts
 
-			var rows = [
-				['KILL', st.kills, st.enemies],
-				['SECRET', st.secretsFound, st.secretsTotal],
-				['TREASURE', st.treasureFound, st.treasureTotal]
-			];
-			ctx.textAlign = 'left';
-			for (var ri = 0; ri < rows.length; ri++) {
-				var label = rows[ri][0], got = rows[ri][1], total = rows[ri][2];
-				var p = pct(got, total);
-				var y = cyC - H * 0.09 + ri * H * 0.08;
-				ctx.fillStyle = '#fff';
-				ctx.fillText(padR(label, LBL) + padL(got, GOT) + ' / ' + padL(total, TOT), x0, y);
-				// a clean 100% is worth calling out, as the original does with its bonus
-				ctx.fillStyle = (p === 100) ? '#ffd24a' : '#fff';
-				ctx.fillText(padL(p + '%', PCT), pctX, y);
-			}
-			// TIME vs par, then the bonus that was just paid out, then the score.
-			var extra = rows.length;
 			var mmss = function (sec) {
 				sec = Math.max(0, sec | 0);
 				return ((sec / 60) | 0) + ':' + ('0' + (sec % 60)).slice(-2);
 			};
+
+			// Collect the lines first; the layout follows from how many there are.
+			var lines = [];
+			var statRows = [
+				['KILL', st.kills, st.enemies],
+				['SECRET', st.secretsFound, st.secretsTotal],
+				['TREASURE', st.treasureFound, st.treasureTotal]
+			];
+			for (var ri = 0; ri < statRows.length; ri++) {
+				var p = pct(statRows[ri][1], statRows[ri][2]);
+				lines.push({
+					text: padR(statRows[ri][0], LBL) + padL(statRows[ri][1], GOT) + ' / ' + padL(statRows[ri][2], TOT),
+					color: '#fff',
+					// a clean 100% is worth calling out, as the original does with its bonus
+					text2: padL(p + '%', PCT), x2: pctX, color2: (p === 100) ? '#ffd24a' : '#fff'
+				});
+			}
 			if (st.elapsed != null) {
-				var timeTxt = mmss(st.elapsed) + (st.parSeconds ? '  PAR ' + mmss(st.parSeconds) : '');
-				ctx.fillStyle = (st.parSeconds && st.timeLeft > 0) ? '#ffd24a' : '#fff';
-				ctx.fillText(padR('TIME', LBL) + timeTxt, x0, cyC - H * 0.09 + extra * H * 0.08);
-				extra++;
+				lines.push({
+					text: padR('TIME', LBL) + mmss(st.elapsed) + (st.parSeconds ? '  PAR ' + mmss(st.parSeconds) : ''),
+					color: (st.parSeconds && st.timeLeft > 0) ? '#ffd24a' : '#fff'
+				});
 			}
 			if (st.bonus) {
-				ctx.fillStyle = '#ffd24a';
-				ctx.fillText(padR('BONUS', LBL) + padL(st.bonus, lineChars - LBL),
-					x0, cyC - H * 0.09 + extra * H * 0.08);
-				extra++;
+				lines.push({ text: padR('BONUS', LBL) + padL(st.bonus, lineChars - LBL), color: '#ffd24a' });
 			}
-			ctx.fillStyle = '#fff';
-			ctx.fillText(padR('SCORE', LBL) + padL(this.gs.score, lineChars - LBL),
-				x0, cyC - H * 0.09 + extra * H * 0.08);
+			lines.push({ text: padR('SCORE', LBL) + padL(this.gs.score, lineChars - LBL), color: '#fff' });
+
+			// Line spacing shrinks if the list ever grows past what fits comfortably.
+			var lineStep = Math.min(H * 0.08, Math.max(lineSize * 1.3, (H * 0.62) / lines.length));
+			var titleGap = titleSize * 1.5;
+			var promptGap = promptSize * 2.2;
+			var blockH = titleGap + lines.length * lineStep + promptGap;
+			var top = (H - blockH) / 2;
+
+			ctx.textAlign = 'center';
+			ctx.fillStyle = '#ffd24a';
+			ctx.font = 'bold ' + titleSize + 'px monospace';
+			ctx.fillText(title, W / 2, top + titleSize * 0.7);
+
+			ctx.font = 'bold ' + lineSize + 'px monospace';
+			ctx.textAlign = 'left';
+			for (var li = 0; li < lines.length; li++) {
+				var ln = lines[li], y = top + titleGap + li * lineStep + lineStep / 2;
+				ctx.fillStyle = ln.color;
+				ctx.fillText(ln.text, x0, y);
+				if (ln.text2) { ctx.fillStyle = ln.color2; ctx.fillText(ln.text2, ln.x2, y); }
+			}
 
 			ctx.textAlign = 'center';
 			ctx.fillStyle = (((Date.now() / 500) | 0) % 2) ? '#ffd24a' : 'rgba(255,210,74,0.35)';
-			ctx.font = 'bold ' + Math.max(10, H * 0.038) + 'px monospace';
-			ctx.fillText(this._levelDoneReady ? 'PRESS A KEY TO CONTINUE' : '\u2026', W / 2, cyC + H * 0.33);
+			ctx.font = 'bold ' + promptSize + 'px monospace';
+			ctx.fillText(this._levelDoneReady ? 'PRESS A KEY TO CONTINUE' : '\u2026',
+				W / 2, top + blockH - promptSize * 0.7);
 			ctx.restore();
 		}
 	};

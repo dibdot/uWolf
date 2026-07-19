@@ -54,7 +54,7 @@
 		53: { points: 500, treasure: 1, snd: FX.BONUS2 },          // chalice
 		54: { points: 1000, treasure: 1, snd: FX.BONUS3 },         // bible
 		55: { points: 5000, treasure: 1, snd: FX.BONUS4 },         // crown
-		56: { fullheal: 1, snd: FX.BONUS1UP },                     // one-up
+		56: { treasure: 1, fullheal: 1, snd: FX.BONUS1UP },                     // one-up
 		43: { key: 0, snd: FX.GETKEY }, 44: { key: 1, snd: FX.GETKEY }
 	};
 	// The shared (WL6) collectibles above are the base; a dataset may add its own
@@ -1496,7 +1496,10 @@
 
 		if (!gs.dead && this._levelDone > 0) {
 			var st = this._stats || { floor: this._floorNumber(), enemies: 0, kills: 0, secretsTotal: 0, secretsFound: 0, treasureTotal: 0, treasureFound: 0 };
-			var pct = function (a, b) { return b > 0 ? Math.round(a * 100 / b) : 100; };
+			// The original leaves a ratio at 0 when its total is zero (wl_inter.cpp
+			// only divides when the total is non-zero), and pays no 100% bonus for an
+			// empty category — so reporting 100% here would contradict the payout.
+			var pct = function (a, b) { return b > 0 ? Math.round(a * 100 / b) : 0; };
 			ctx.save();
 			ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, W, H);   // solid intermission screen
 			ctx.textBaseline = 'middle';
@@ -1535,7 +1538,7 @@
 
 			var mmss = function (sec) {
 				sec = Math.max(0, sec | 0);
-				return ((sec / 60) | 0) + ':' + ('0' + (sec % 60)).slice(-2);
+				return ('0' + ((sec / 60) | 0)).slice(-2) + ':' + ('0' + (sec % 60)).slice(-2);
 			};
 
 			// Collect the lines first; the layout follows from how many there are.
@@ -1555,8 +1558,10 @@
 				});
 			}
 			if (st.elapsed != null) {
+				// Right-aligned like BONUS and SCORE, so the numeric column lines up.
+				var timeVal = mmss(st.elapsed) + (st.parSeconds ? ' PAR ' + mmss(st.parSeconds) : '');
 				lines.push({
-					text: padR('TIME', LBL) + mmss(st.elapsed) + (st.parSeconds ? '  PAR ' + mmss(st.parSeconds) : ''),
+					text: padR('TIME', LBL) + padL(timeVal, lineChars - LBL),
 					color: (st.parSeconds && st.timeLeft > 0) ? '#ffd24a' : '#fff'
 				});
 			}

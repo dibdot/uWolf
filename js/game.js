@@ -1547,8 +1547,13 @@
 			var x0 = W / 2 - (lineChars * charW) / 2;
 			var pctX = x0 + (LBL + GOT + SEP + TOT) * charW; // where the percentage column starts
 
+			// The field is two digits per side, so anything past 99 minutes has to be
+			// clamped or it wraps: 100 minutes would otherwise read as "00:00". The
+			// original clamps the same way on its level screen (wl_inter.cpp caps the
+			// second count at 99*60, which lands on 99:00).
 			var mmss = function (sec) {
 				sec = Math.max(0, sec | 0);
+				if (sec > 99 * 60) sec = 99 * 60;
 				return ('0' + ((sec / 60) | 0)).slice(-2) + ':' + ('0' + (sec % 60)).slice(-2);
 			};
 

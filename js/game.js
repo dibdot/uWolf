@@ -193,7 +193,7 @@
 		this.gs = {
 			health: 100, ammo: STARTAMMO, weapon: WP.PISTOL, chosen: WP.PISTOL,
 			have: [true, true, false, false],
-			score: 0, lives: 3, nextExtra: 40000, difficulty: 1, godmode: false, gatlingFace: 0, lastHurtBy: null, infiniteAmmo: false, keys: 0,
+			score: 0, lives: 3, nextExtra: 40000, difficulty: 1, godmode: false, noclip: false, gatlingFace: 0, lastHurtBy: null, infiniteAmmo: false, keys: 0,
 			allWeapons: false, gameOver: false,
 			damageFlash: 0, fireCd: 0, dead: false, respawn: 0,
 			wpnAnimT: 0, wpnAnimDur: 0, bob: 0, faceframe: 0, faceTimer: 0
@@ -202,6 +202,7 @@
 
 	Game.prototype.setDifficulty = function (d) { this.gs.difficulty = d | 0; };
 	Game.prototype.setGodmode = function (on) { this.gs.godmode = !!on; };
+	Game.prototype.setNoclip = function (on) { this.gs.noclip = !!on; };
 	Game.prototype.setShowMap = function (on) {
 		this.showMap = !!on;
 		if (this.minimap) this.minimap.style.display = this.showMap ? 'block' : 'none';
@@ -1267,6 +1268,16 @@
 
 	Game.prototype._tryMove = function (nx, ny) {
 		var p = this.player, r = 0.22;
+		// ClipMove's no-clip branch: when the ordinary move is refused, take it
+		// anyway — but only while both coordinates stay inside a two-tile border, so
+		// you can pass through walls without ever leaving the map.
+		if (this.gs.noclip) {
+			var lvl = this.level;
+			if (nx > 2 && ny > 2 && nx < lvl.width - 1 && ny < lvl.height - 1) {
+				p.x = nx; p.y = ny;
+				return;
+			}
+		}
 		// Axis-separated so we can slide along walls.
 		if (!this._solid(nx + Math.sign(nx - p.x) * r, p.y) && !this._solid(nx, p.y + r) && !this._solid(nx, p.y - r)) {
 			// If blocked only by a closed door ahead, auto-open it.
@@ -1823,7 +1834,7 @@
 			gs: {
 				health: gs.health, ammo: gs.ammo, weapon: gs.weapon, chosen: gs.chosen,
 				have: gs.have.slice(), score: gs.score, lives: gs.lives, nextExtra: gs.nextExtra, keys: gs.keys,
-				difficulty: gs.difficulty, godmode: gs.godmode, infiniteAmmo: gs.infiniteAmmo,
+				difficulty: gs.difficulty, godmode: gs.godmode, noclip: gs.noclip, infiniteAmmo: gs.infiniteAmmo,
 				allWeapons: gs.allWeapons
 			},
 			map: map,
@@ -1859,6 +1870,7 @@
 		this.resetPlayerState();
 		this.gs.difficulty = st.gs.difficulty | 0;
 		this.gs.godmode = !!st.gs.godmode;
+		this.gs.noclip = !!st.gs.noclip;
 		this.gs.infiniteAmmo = !!st.gs.infiniteAmmo;
 		this.gs.allWeapons = !!st.gs.allWeapons;
 		this.startLevel(st.floor);

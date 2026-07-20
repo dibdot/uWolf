@@ -234,7 +234,10 @@
 		// ScriptProcessorNode is deprecated but universally available and needs no
 		// separate module file, which keeps uWolf to plain static scripts. Music is not
 		// latency-critical, so the main-thread callback is fine here.
-		this.node = this.ctx.createScriptProcessor(2048, 0, 1);
+		// A ScriptProcessorNode is filled on the MAIN thread, so a long frame starves
+		// it and the music breaks up. 2048 frames is only ~46 ms of headroom; 4096
+		// doubles that, and the extra latency is irrelevant for background music.
+		this.node = this.ctx.createScriptProcessor(4096, 0, 1);
 		this.node.onaudioprocess = function (e) { self._fill(e.outputBuffer.getChannelData(0)); };
 		this.gain = this.ctx.createGain();
 		this.gain.gain.value = this.volume;

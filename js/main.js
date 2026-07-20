@@ -280,6 +280,7 @@
 			game.resetPlayerState();
 			game.setDifficulty(parseInt($('diffSel').value, 10) || 0);
 			game.setGodmode($('godChk').checked);
+			game.setNoclip($('noclipChk').checked);
 			game.setAllWeapons($('allWpnChk').checked);
 			game.setInfiniteAmmo($('ammoChk').checked);
 			game.startLevel(idx);

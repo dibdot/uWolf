@@ -223,10 +223,16 @@
 		var dirX = player.dirX, dirY = player.dirY, planeX = player.planeX, planeY = player.planeY;
 		var zb = this.zbuffer, data = this.data;
 
-		// Sort far -> near.
-		var order = this.sprites.map(function (s, i) {
-			var dx = s.x - posX, dy = s.y - posY; return { i: i, d: dx * dx + dy * dy };
-		}).sort(function (a, b) { return b.d - a.d; });
+		// Sort far -> near. The scratch array is reused: rebuilding it every frame
+		// churned one object per sprite per frame for the collector to clean up.
+		var order = this._order || (this._order = []);
+		order.length = 0;
+		for (var si = 0; si < this.sprites.length; si++) {
+			var s = this.sprites[si];
+			var sdx = s.x - posX, sdy = s.y - posY;
+			order.push({ i: si, d: sdx * sdx + sdy * sdy });
+		}
+		order.sort(function (a, b) { return b.d - a.d; });
 
 		var invDet = 1 / (planeX * dirY - dirX * planeY);
 		for (var k = 0; k < order.length; k++) {
@@ -243,11 +249,35 @@
 			var canvasSprite = data.getSpriteCanvas(sp.sprite);
 			var iStart = Math.max(0, Math.floor(startX));
 			var iEnd = Math.min(W - 1, Math.floor(startX + size));
-			for (var stripe = iStart; stripe <= iEnd; stripe++) {
-				if (tY >= zb[stripe]) continue;
-				var texX = (((stripe - startX) * 64 / size)) | 0;
-				if (texX < 0 || texX > 63) continue;
-				ctx.drawImage(canvasSprite, texX, 0, 1, 64, stripe, drawStartY, 1, size);
+			// Draw contiguous visible columns as ONE blit instead of one per column.
+			// A corpse you are standing on spans the whole screen, and the per-column
+			// version issued a drawImage for every single one of those columns — enough
+			// canvas calls per frame to stall the main thread, which is also where the
+			// music is synthesised, so the sound would break up. Runs are equivalent:
+			// the source-to-destination mapping is linear and smoothing is off.
+			var run = -1;                                   // first column of the open run
+			var scale = 64 / size;
+			for (var stripe = iStart; stripe <= iEnd + 1; stripe++) {
+				var vis = false;
+				if (stripe <= iEnd && tY < zb[stripe]) {
+					var tx = (stripe - startX) * scale;
+					vis = (tx >= 0 && tx < 64);
+				}
+				if (vis) {
+					if (run < 0) run = stripe;
+					continue;
+				}
+				if (run >= 0) {                             // flush [run .. stripe-1]
+					var sx0 = (run - startX) * scale;
+					var sx1 = (stripe - startX) * scale;
+					if (sx0 < 0) sx0 = 0;
+					if (sx1 > 64) sx1 = 64;
+					if (sx1 > sx0) {
+						ctx.drawImage(canvasSprite, sx0, 0, sx1 - sx0, 64,
+							run, drawStartY, stripe - run, size);
+					}
+					run = -1;
+				}
 			}
 		}
 	};

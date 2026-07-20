@@ -79,11 +79,11 @@
 		if (tx0 > ty0) {                         // entered on a constant-x face
 			side = 0;
 			texX = (((posY + tenter * rayDirY) - by0) * 64) | 0;
-			if (rayDirX > 0) texX = 63 - texX;
+			if (rayDirX < 0) texX = 63 - texX;      // as HitVertWall
 		} else {                                 // entered on a constant-y face
 			side = 1;
 			texX = (((posX + tenter * rayDirX) - bx0) * 64) | 0;
-			if (rayDirY < 0) texX = 63 - texX;
+			if (rayDirY > 0) texX = 63 - texX;      // as HitHorizWall
 		}
 		if (texX < 0) texX = 0; if (texX > 63) texX = 63;
 		var page = wallTexPage(pw.tile, side, this.data.numWalls);
@@ -179,8 +179,13 @@
 					wallX -= Math.floor(wallX);
 					texX = (wallX * 64) | 0;
 					// Flip so textures aren't mirrored, matching original orientation.
-					if (side === 0 && rayDirX > 0) texX = 63 - texX;
-					if (side === 1 && rayDirY < 0) texX = 63 - texX;
+					// Mirror the texture column the way HitVertWall / HitHorizWall do:
+					// the vertical faces flip when the ray steps in -x, the horizontal
+					// ones when it steps in +y. Getting these the wrong way round
+					// mirrors every wall texture — invisible on brickwork, but obvious
+					// on the lettered signs ("VERBOTEN!" reads backwards).
+					if (side === 0 && rayDirX < 0) texX = 63 - texX;
+					if (side === 1 && rayDirY > 0) texX = 63 - texX;
 					tex = data.getWallCanvas(wallTexPage(t, side, data.numWalls), false);
 					hit = 1;
 				}

@@ -193,7 +193,7 @@
 		this.gs = {
 			health: 100, ammo: STARTAMMO, weapon: WP.PISTOL, chosen: WP.PISTOL,
 			have: [true, true, false, false],
-			score: 0, lives: 3, nextExtra: 40000, difficulty: 1, godmode: false, infiniteAmmo: false, keys: 0,
+			score: 0, lives: 3, nextExtra: 40000, difficulty: 1, godmode: false, gatlingFace: 0, lastHurtBy: null, infiniteAmmo: false, keys: 0,
 			allWeapons: false, gameOver: false,
 			damageFlash: 0, fireCd: 0, dead: false, respawn: 0,
 			wpnAnimT: 0, wpnAnimDur: 0, bob: 0, faceframe: 0, faceTimer: 0
@@ -723,6 +723,9 @@
 		// we don't implement that.) The FACE, on the other hand, does NOT react: it is
 		// picked purely from health, and health never moves — so BJ keeps grinning.
 		gs.damageFlash = Math.min(1, gs.damageFlash + 0.25 + pts / 50);
+		// DrawFace needs to know what finished you off: a syringe hit shows the
+		// mutant portrait instead of the ordinary death face (Wolfenstein only).
+		gs.lastHurtBy = actor ? (actor.kind || actor.cls || null) : null;
 		if (gs.godmode) return;
 
 		gs.health -= pts;
@@ -797,6 +800,10 @@
 	Game.prototype._giveWeapon = function (w) {
 		this._giveAmmo(6);
 		this.gs.have[w] = true; this.gs.weapon = this.gs.chosen = w;
+		// DrawFace shows the grinning "got the gatling" portrait for as long as the
+		// pickup jingle is playing. We have no handle on the mixer's tail, so the
+		// portrait runs on a timer of roughly the jingle's length instead.
+		if (w === 3) this.gs.gatlingFace = 2.0;
 	};
 
 	// Death handling, as the original does it (wl_game.cpp): lives is decremented
@@ -1312,6 +1319,7 @@
 			return;
 		}
 
+		if (this.gs.gatlingFace > 0) this.gs.gatlingFace = Math.max(0, this.gs.gatlingFace - dt);
 		if (this._levelDone <= 0 && !this._doneWait) this._levelTime += dt;
 
 		// Elevator: hold the floor-stats screen until the player presses a key/taps.
@@ -1641,10 +1649,30 @@
 		pic((kb & 1) ? VGA.GOLDKEY : VGA.NOKEY, 30, 4);          // gold key slot
 		pic((kb & 2) ? VGA.SILVERKEY : VGA.NOKEY, 30, 20);       // silver key slot
 
-		// BJ face: FACE1A + 3*tier + rotation; god mode tints it.
-		var tier = gs.health > 0 ? Math.min(6, ((100 - Math.min(100, gs.health)) / 16) | 0) : 6;
-		pic(VGA.FACE1A + 3 * tier + gs.faceframe, 17, 4);
-		if (gs.godmode) {
+		// The face, picked the way DrawFace picks it:
+		//   - the gatling grin while the pickup jingle plays (both games)
+		//   - alive: Spear has a dedicated god-mode portrait, Wolfenstein does not,
+		//     so there it stays the health face with a tint of our own
+		//   - dead: FACE8A (= FACE1A + 21, one row past the last wounded face), or
+		//     the mutant portrait if a syringe finished you off (Wolfenstein only)
+		var face, tinted = false;
+		if (gs.gatlingFace > 0 && VGA.GOTGATLING >= 0) {
+			face = VGA.GOTGATLING;
+		} else if (gs.health > 0) {
+			if (gs.godmode && VGA.GODMODEFACE >= 0) {
+				face = VGA.GODMODEFACE + gs.faceframe;
+			} else {
+				var tier = Math.min(6, ((100 - Math.min(100, gs.health)) / 16) | 0);
+				face = VGA.FACE1A + 3 * tier + gs.faceframe;
+				tinted = !!gs.godmode;          // no god-mode art in this data set
+			}
+		} else if (gs.lastHurtBy === 'needle' && VGA.MUTANTBJ >= 0) {
+			face = VGA.MUTANTBJ;
+		} else {
+			face = VGA.FACE1A + 21;             // FACE8A, and without a face frame
+		}
+		pic(face, 17, 4);
+		if (tinted) {
 			ctx.globalAlpha = 0.25; ctx.fillStyle = '#39f';
 			ctx.fillRect(Math.round(17 * 8 * sc), Math.round(top + 4 * sc), Math.round(24 * sc), Math.round(32 * sc));
 			ctx.globalAlpha = 1;

@@ -93,7 +93,14 @@
 			2.5, 1.5, 2.5, 2.5, 4, 3, 4.5, 3.5, 0, 0,
 			6.5, 4, 4.5, 6, 5, 5.5, 5.5, 8.5, 0, 0
 		],
-		vga: { STATUSBAR: 86, KNIFE: 91, NOKEY: 95, GOLDKEY: 96, SILVERKEY: 97, N_BLANK: 98, N_0: 99, FACE1A: 109 },
+		// GOTGATLING replaces the face while the chaingun pickup jingle plays, and
+		// MUTANTBJ is Wolfenstein's death portrait after Schabbs' syringe gets you
+		// (`#ifndef SPEAR` in DrawFace). Wolfenstein has no god-mode face.
+		vga: {
+			STATUSBAR: 86, KNIFE: 91, NOKEY: 95, GOLDKEY: 96, SILVERKEY: 97,
+			N_BLANK: 98, N_0: 99, FACE1A: 109,
+			GOTGATLING: 131, MUTANTBJ: 132, GODMODEFACE: -1
+		},
 		songs: [
 			3, 11, 9, 12, 3, 11, 9, 12, 2, 0,
 			8, 18, 17, 4, 8, 18, 4, 17, 2, 1,
@@ -229,7 +236,13 @@
 			166: [0, 56, 0],                 // WL6 (182, 32, 255) -> SOD (0, 56, 0)
 			167: [0, 40, 0]                  // WL6 (170,  0, 255) -> SOD (0, 40, 0)
 		},
-		vga: { STATUSBAR: 90, KNIFE: 101, NOKEY: 105, GOLDKEY: 106, SILVERKEY: 107, N_BLANK: 108, N_0: 109, FACE1A: 119 },
+		// Spear is the one with a god-mode portrait (GODMODEFACE1..3, indexed by the
+		// face frame directly), and it has no mutant-BJ death picture.
+		vga: {
+			STATUSBAR: 90, KNIFE: 101, NOKEY: 105, GOLDKEY: 106, SILVERKEY: 107,
+			N_BLANK: 108, N_0: 109, FACE1A: 119,
+			GOTGATLING: 141, MUTANTBJ: -1, GODMODEFACE: 142
+		},
 		// songs[] under SPEAR (wl_play.cpp) mapped to SOD music-track indices
 		// (audiosod.h). 21 floors, one continuous campaign.
 		songs: [4, 0, 2, 22, 15, 1, 5, 9, 10, 15, 8, 3, 12, 11, 13, 15, 21, 15, 18, 0, 17],

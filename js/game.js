@@ -1569,10 +1569,18 @@
 				});
 			}
 			if (st.elapsed != null) {
-				// Right-aligned like BONUS and SCORE, so the numeric column lines up.
-				var timeVal = mmss(st.elapsed) + (st.parSeconds ? ' PAR ' + mmss(st.parSeconds) : '');
+				// PAR first, then the time actually taken — you read the target before
+				// the result. Both right-aligned into the same numeric column as BONUS
+				// and SCORE. TIME is highlighted when the floor was cleared inside par,
+				// since that is what earns the time bonus.
+				if (st.parSeconds) {
+					lines.push({
+						text: padR('PAR', LBL) + padL(mmss(st.parSeconds), lineChars - LBL),
+						color: '#fff'
+					});
+				}
 				lines.push({
-					text: padR('TIME', LBL) + padL(timeVal, lineChars - LBL),
+					text: padR('TIME', LBL) + padL(mmss(st.elapsed), lineChars - LBL),
 					color: (st.parSeconds && st.timeLeft > 0) ? '#ffd24a' : '#fff'
 				});
 			}

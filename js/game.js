@@ -548,7 +548,7 @@
 					if (t1 === PUSHABLE) this._stats.secretsTotal++;
 					var spawn = Enemies.decodeSpawn(t1);
 					if (!spawn) continue;
-					if (spawn.type === 'corpse' || spawn.type === 'ghost') {
+					if (spawn.type === 'corpse') {
 						// inert: render as a static sprite, no AI
 						sprites.push({ x: x + 0.5, y: y + 0.5, sprite: spawn.base });
 					} else if (diff >= spawn.minDiff) {
@@ -1499,7 +1499,10 @@
 			// The original leaves a ratio at 0 when its total is zero (wl_inter.cpp
 			// only divides when the total is non-zero), and pays no 100% bonus for an
 			// empty category — so reporting 100% here would contradict the payout.
-			var pct = function (a, b) { return b > 0 ? Math.round(a * 100 / b) : 0; };
+			// Integer division, exactly as wl_inter.cpp does it — rounding up would let
+			// the screen show 100% for 199/200 while the bonus (which truncates)
+			// pays nothing.
+			var pct = function (a, b) { return b > 0 ? ((a * 100 / b) | 0) : 0; };
 			ctx.save();
 			ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, W, H);   // solid intermission screen
 			ctx.textBaseline = 'middle';
@@ -1912,7 +1915,11 @@
 				episode: this._episodeNumber(st.floor),
 				floor: this._floorNumber(st.floor),
 				health: st.gs.health, score: st.gs.score, lives: st.gs.lives,
-				nextExtra: st.gs.nextExtra != null ? st.gs.nextExtra : 40000,
+				// Saves from before the extra-life threshold existed carry no nextExtra;
+				// derive it from the score instead of resetting to the first step, or
+				// the next point scored would pay out every life at once.
+				nextExtra: st.gs.nextExtra != null ? st.gs.nextExtra
+					: (Math.floor((st.gs.score || 0) / 40000) + 1) * 40000,
 				difficulty: st.gs.difficulty
 			};
 		} catch (e) { return null; }

@@ -478,7 +478,7 @@
 			dir: spawn.rotate ? spawn.dirType : NODIR,
 			distance: 0, speed: cfg.patrol,
 			hp: cfg.hp[difficulty] | 0,
-			temp2: 0, ticcount: 0,
+			temp1: 0, temp2: 0, ticcount: 0,
 			state: spawn.patrol ? S.path1 : S.stand,
 			flags: { attackmode: false, ambush: false, shootable: true, visible: false, active: false, hidden: false, dead: false },
 			sprite: 0,
@@ -793,10 +793,13 @@
 	WolfAI.prototype.tChase = function (a, isDog) {
 		var env = this.env, p = env.player;
 		var dodge = false;
+		// T_Will computes the range BEFORE the line-of-sight test, and its retreat
+		// decision does not depend on having a shot — so this has to live out here,
+		// not inside the CheckLine branch.
+		var dx = Math.abs(a.tilex - (p.x | 0)), dy = Math.abs(a.tiley - (p.y | 0));
+		var dist = dx > dy ? dx : dy;
 		if (!isDog && this.checkLine(a.x, a.y, p.x, p.y)) {
 			a.flags.hidden = false;
-			var dx = Math.abs(a.tilex - (p.x | 0)), dy = Math.abs(a.tiley - (p.y | 0));
-			var dist = dx > dy ? dx : dy;
 			var chance;
 			var t16 = (this.tics * 16) | 0;
 			if (dist) chance = (t16 / dist) | 0; else chance = 300;
@@ -951,7 +954,7 @@
 			x: a.x, y: a.y, tilex: a.tilex, tiley: a.tiley,
 			dir: (dir == null) ? a.dir : dir, distance: 0, speed: cfg.chase,
 			hp: cfg.hp[a.diff] | 0,
-			temp2: 0, ticcount: 0,
+			temp1: 0, temp2: 0, ticcount: 0,
 			state: S.chase1,
 			flags: {
 				attackmode: true, ambush: false, shootable: true,
@@ -1287,6 +1290,9 @@
 				ac: f.active ? 1 : 0, ab: f.ambush ? 1 : 0,
 				// Actors that were never in the map (Adolf, after the morph) must be
 				// re-created on load — otherwise the finale becomes unwinnable again.
+				// The Spectre's payout is once-only; without this a save/load would let
+				// it be farmed for points and kills over and over.
+				bt: a.bonusTaken ? 1 : 0,
 				sp: a.spawned ? a.kind : undefined
 			});
 		}
@@ -1315,10 +1321,16 @@
 			a.flags.ambush = !!s.ab;
 			a.flags.visible = false;
 			a.flags.hidden = false;
-			a.flags.shootable = !s.dd;
+			// Never resurrect immunity: the ghosts have no FL_SHOOTABLE at all, so a
+			// load must not hand them one. Everything else is shootable unless dead.
+			a.flags.shootable = a.cfg.ghost ? false : !s.dd;
+			a.bonusTaken = !!s.bt;
 
 			if (s.dd) {                       // corpse: final death frame
-				a.state = S.dead; a.ticcount = 0; a.dir = NODIR;
+				a.state = S.dead; a.dir = NODIR;
+				// A state with an action but no think only advances while it is
+				// counting down, so a dormant actor parked at 0 would never wake up.
+				a.ticcount = a.cfg.dormant ? (a.state.tics || 0) : 0;
 				a.sprite = a.cfg.DEAD;
 			} else if (s.am) {                // was hunting the player
 				a.state = S.chase1; a.ticcount = a.state.tics || 0;
@@ -1338,7 +1350,7 @@
 			x: s.x, y: s.y, tilex: s.x | 0, tiley: s.y | 0,
 			dir: (s.d == null) ? NODIR : s.d,
 			distance: 0, speed: cfg.chase, hp: s.hp,
-			temp2: 0, ticcount: 0,
+			temp1: 0, temp2: 0, ticcount: 0,
 			state: S.chase1,
 			flags: { attackmode: true, ambush: false, shootable: true, visible: false, active: true, hidden: false, dead: false },
 			sprite: cfg.W, S: S, spawned: true

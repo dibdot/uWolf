@@ -126,7 +126,35 @@ body {
 .opts .chk input {
 	width: 16px;
 	height: 16px;
+	margin: 0;                 /* drop the UA default margin so the label text
+	                              starts at exactly 16px + 6px gap = 22px, which
+	                              is what .music-mode's padding-left lines up to */
 	accent-color: var(--accent);
+}
+
+/* Wraps the Enter button as a full-width row so it always starts on its own
+   line inside the flex #levelBox, instead of packing beside the options. */
+.finalrow {
+	flex-basis: 100%;
+}
+
+/* User-facing audio status under the options. Empty by default -> collapses. */
+.music-mode {
+	flex-basis: 100%;       /* own line within the options group */
+	padding-left: 22px;     /* line up under the word "Music": checkbox 16px + 6px gap */
+	margin: -5px 0 0;       /* hug the Music row above it */
+	font-size: 11.5px;
+	line-height: 1.5;
+	color: var(--dim);
+}
+
+.music-mode:empty {
+	display: none;
+}
+
+.music-mode.ok,
+.music-mode.warn {
+	color: var(--accent-lit);
 }
 
 /* --- Menu --- */

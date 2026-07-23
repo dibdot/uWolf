@@ -22,6 +22,8 @@
 	var DIGI = root.SoundManager ? root.SoundManager.DIGI : {};
 
 	var TICS = 70;                 // tic rate
+	var TIC = 1 / TICS;            // seconds per tic — the fixed simulation step
+	var MAX_ACC = 0.1;             // cap the backlog so a stall can't spiral (~7 tics)
 	var G2T = TICS / 65536;        // global-units/tic speed -> tiles/sec
 	var MINACTORDIST = 1.0;        // 0x10000 in tiles: personal space / melee reach
 	var KNIFE_REACH = 1.5;         // 0x18000
@@ -454,10 +456,11 @@
 		this.actors = [];
 		this.occ = new Map();    // tileKey -> actor (blocking)
 		this.tics = 0;
+		this._acc = 0;                     // fixed-step time accumulator (seconds)
 		this.noise = { t: 0 };             // madenoise: seconds left on the last gunshot
 	}
 
-	WolfAI.prototype.reset = function () { this.actors = []; this.occ.clear(); this.noise.t = 0; };
+	WolfAI.prototype.reset = function () { this.actors = []; this.occ.clear(); this.noise.t = 0; this._acc = 0; };
 
 	WolfAI.prototype._key = function (tx, ty) { return ty * this.env.width + tx; };
 	WolfAI.prototype.occAt = function (tx, ty) { return this.occ.get(this._key(tx, ty)) || null; };
@@ -1041,16 +1044,30 @@
 	WolfAI.prototype._facing = function (a) { return a.dir === NODIR ? (a._idleDir || 0) : a.dir; };
 
 	WolfAI.prototype.update = function (dt) {
-		this._dt = dt;
-		this.tics = dt * TICS;
+		// Fixed 70 Hz simulation. We accumulate real time and consume it one whole
+		// tic at a time, so every think()/action() sees exactly one tic — the way the
+		// original PlayLoop does. Previously the step was variable (tics = dt*70): that
+		// averaged out, but the integer probability math (e.g. T_Chase's tics*16/dist)
+		// does not behave linearly under a fractional tic, so the chase/shoot cadence
+		// drifted with the display's refresh rate and runs were not reproducible.
+		// With a fixed step both problems disappear and _dt/tics collapse to constants.
+		this._dt = TIC;
+		this.tics = 1;
 		if (this.noise.t > 0) this.noise.t = Math.max(0, this.noise.t - dt);
 
+		this._acc += dt;
+		if (this._acc > MAX_ACC) this._acc = MAX_ACC;   // drop a runaway backlog
+
 		var i, a, spent = false;
-		for (i = 0; i < this.actors.length; i++) {
-			a = this.actors[i];
-			if (a.proj) { this._doProjectile(a); if (a.remove) spent = true; }
-			else if (a.bj) this._doBJ(a);
-			else this.doActor(a);
+		while (this._acc >= TIC) {
+			this._acc -= TIC;
+			for (i = 0; i < this.actors.length; i++) {
+				a = this.actors[i];
+				if (a.remove) continue;                 // spent in an earlier sub-step
+				if (a.proj) { this._doProjectile(a); if (a.remove) spent = true; }
+				else if (a.bj) this._doBJ(a);
+				else this.doActor(a);
+			}
 		}
 
 		// Projectiles are the only actors that ever leave: sweep the spent ones out of

@@ -14,6 +14,10 @@
 	function isDoor(t) { return t >= 90 && t <= 101; }
 	function doorVertical(t) { return (t & 1) === 0; } // even codes = vertical slab
 
+	// Far -> near sprite ordering. Hoisted so the sort doesn't allocate a fresh
+	// comparator closure on every frame.
+	function byDepthDesc(a, b) { return b.d - a.d; }
+
 	// Every wall tile has TWO textures in VSWAP — a light one and a darker one — and
 	// which you see depends on which face of the block the ray struck:
 	//
@@ -223,16 +227,23 @@
 		var dirX = player.dirX, dirY = player.dirY, planeX = player.planeX, planeY = player.planeY;
 		var zb = this.zbuffer, data = this.data;
 
-		// Sort far -> near. The scratch array is reused: rebuilding it every frame
-		// churned one object per sprite per frame for the collector to clean up.
+		// Sort far -> near. Both the scratch array AND its entries are pooled: the
+		// array is grown to the sprite count once and the {i,d} records are then
+		// overwritten in place. The previous version reused the array but still
+		// pushed a fresh object per sprite per frame, so the churn it set out to
+		// avoid was still there. With a stable sprite list (the norm) this now
+		// allocates nothing per frame.
 		var order = this._order || (this._order = []);
-		order.length = 0;
-		for (var si = 0; si < this.sprites.length; si++) {
+		var n = this.sprites.length;
+		while (order.length < n) order.push({ i: 0, d: 0 });   // grow pool as needed
+		if (order.length > n) order.length = n;                // trim to the live count
+		for (var si = 0; si < n; si++) {
 			var s = this.sprites[si];
 			var sdx = s.x - posX, sdy = s.y - posY;
-			order.push({ i: si, d: sdx * sdx + sdy * sdy });
+			var e = order[si];
+			e.i = si; e.d = sdx * sdx + sdy * sdy;
 		}
-		order.sort(function (a, b) { return b.d - a.d; });
+		order.sort(byDepthDesc);
 
 		var invDet = 1 / (planeX * dirY - dirX * planeY);
 		for (var k = 0; k < order.length; k++) {

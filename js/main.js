@@ -137,6 +137,25 @@
 	// AUDIOHED + AUDIOT are optional; without them the checkbox stays off and disabled.
 	var MUSIC_KEY = 'uwolf.music';
 
+	// Tell the player, in plain terms, how audio is running. The real backend is
+	// known once the audio node is up (game.music.onmode fires); before that — e.g.
+	// sitting on the menu before a level — we predict from window.isSecureContext,
+	// which is exactly what decides whether an AudioWorklet is available at all
+	// (HTTPS and http://localhost qualify, plain http does not).
+	function renderAudioMode() {
+		var el = $('musicMode');
+		if (!el) return;
+		if (!game.music || !$('musicChk').checked) { el.textContent = ''; el.className = 'music-mode'; return; }
+		var mode = game.music.mode || (window.isSecureContext ? 'worklet' : 'script');
+		if (mode === 'worklet') {
+			el.textContent = 'Audio runs on its own thread — smooth, no stutter.';
+			el.className = 'music-mode ok';
+		} else {
+			el.textContent = 'Audio runs in compatibility mode — it may stutter under heavy load.';
+			el.className = 'music-mode warn';
+		}
+	}
+
 	function setupMusic(buffers) {
 		var box = $('musicChk');
 		game.music = null;
@@ -151,6 +170,7 @@
 			var audio = new window.WolfMusic.WolfAudio(buffers.AUDIOHED, buffers.AUDIOT);
 			if (!audio.musicCount()) throw new Error('no tracks');
 			game.music = new window.WolfMusic.MusicPlayer(game.sound.context(), audio);
+			game.music.onmode = renderAudioMode;
 		} catch (e) {
 			game.music = null;
 			box.checked = false;
@@ -163,12 +183,14 @@
 		try { stored = window.localStorage.getItem(MUSIC_KEY); } catch (e) { /* ignore */ }
 		box.checked = (stored === null) ? true : (stored === '1');    // on by default, as in the original
 		game.music.setEnabled(box.checked);
+		renderAudioMode();
 	}
 
 	$('musicChk').addEventListener('change', function () {
 		var on = $('musicChk').checked;
 		try { window.localStorage.setItem(MUSIC_KEY, on ? '1' : '0'); } catch (e) { /* ignore */ }
 		if (game.music) game.music.setEnabled(on);
+		renderAudioMode();
 	});
 
 	// --- Mobile controls (the on-screen FIRE button) ---
@@ -369,8 +391,17 @@
 
 			var txt = document.createElement('div');
 			txt.className = 'save-txt';
-			txt.innerHTML = '<strong>' + slot.name + '</strong><br><span>' +
-				(info ? describe(info) : 'empty') + '</span>';
+			// Built from DOM nodes with textContent rather than an innerHTML string.
+			// The inputs here are all program-generated (fixed slot names, numeric
+			// stats, a derived floor label), so nothing untrusted flows in today —
+			// this just keeps the door shut if that ever changes.
+			var strong = document.createElement('strong');
+			strong.textContent = slot.name;
+			var span = document.createElement('span');
+			span.textContent = info ? describe(info) : 'empty';
+			txt.appendChild(strong);
+			txt.appendChild(document.createElement('br'));
+			txt.appendChild(span);
 			row.appendChild(txt);
 
 			var btns = document.createElement('div');

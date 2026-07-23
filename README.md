@@ -115,7 +115,10 @@ its music and sound settings apart.
 - **FM music**, decoded from your `AUDIOT` and played through an OPL2 (YM3812)
   synthesiser written for this project. Optional: tick **Music** on the menu, and
   supply `AUDIOHED.<WL6|SOD>` + `AUDIOT.<WL6|SOD>`. Each floor gets its own track,
-  from the same `songs[]` table the original uses.
+  from the same `songs[]` table the original uses. The chip is synthesised in an
+  **AudioWorklet** — its own audio thread — so a long render frame on the main
+  thread can't starve it and break the music up; browsers without worklets fall
+  back to a main-thread `ScriptProcessorNode`.
 - Solid-colour floor/ceiling (as in the original)
 - **The original VGAGRAPH status bar and BJ face** (health-driven, with the
   number/weapon/key icons), when you also supply `VGAGRAPH`/`VGAHEAD`/`VGADICT`;
@@ -227,7 +230,8 @@ uWolf/
   js/enemies.js     enemy spawn decoding + 8-direction sprite selection
   js/sound.js       Web Audio playback of the VSWAP digitized sounds
   js/opl2.js        a YM3812 (OPL2) FM synthesiser — the one piece of hardware here
-  js/music.js       AUDIOHED/AUDIOT parsing, the IMF sequencer, Web Audio output
+  js/music.js       AUDIOHED/AUDIOT parsing, the shared FM engine (chip + IMF
+                    sequencer + effects), and the AudioWorklet/ScriptProcessor bridge
   js/ai.js          enemy AI, the actor state machine, and player combat
   js/vgagraph.js    VGAGRAPH decoder (Huffman + planar) for the status bar/face
   js/game.js        loop, input, doors, combat wiring, HUD, collision, minimap
@@ -272,6 +276,40 @@ Then browse to `http://<router-ip>:8088/`.
 `fetch().arrayBuffer()`, so no special MIME configuration is needed. The data
 loads automatically from the page's own folder on open; if it isn't found, add
 the WL6 files there and press **Retry**.
+
+### Optional: HTTPS (for gapless music)
+
+The FM music is synthesised in an **AudioWorklet**, which browsers only expose in
+a *secure context* — i.e. `https://…` or `http://localhost`. Over plain
+`http://<router-ip>` the engine still plays music, but it falls back to a
+main-thread `ScriptProcessorNode`: that works, yet a long render frame can make
+the music stutter, and the browser logs a one-off "ScriptProcessorNode is
+deprecated" notice. Serving the page over HTTPS gets you the off-thread path and
+silences that notice. The menu shows which mode is active.
+
+You don't need a new certificate — reuse the self-signed one OpenWrt already
+generates for LuCI (`px5g` creates `/etc/uhttpd.crt` / `/etc/uhttpd.key` on first
+boot). Just give the `wolf` instance an HTTPS listener and point it at them
+(`libustream-ssl` must be installed, which it is on any image with LuCI-SSL):
+
+```
+config uhttpd 'wolf'
+    option listen_http '0.0.0.0:8088'
+    option listen_https '0.0.0.0:8443'
+    option home '/mnt/data/uWolf'
+    option index_page 'index.html'
+    option cert '/etc/uhttpd.crt'
+    option key '/etc/uhttpd.key'
+    option max_requests '5'
+```
+
+```sh
+/etc/init.d/uhttpd restart
+```
+
+Then browse to `https://<router-ip>:8443/` and accept the self-signed
+certificate once. `game.music.mode` in the console reads `'worklet'` on the
+secure path (and `'script'` on the plain-HTTP fallback).
 
 ## Source & credits
 

@@ -89,6 +89,30 @@
 		8, 18, 17, 4, 8, 18, 4, 17, 2, 1,        // episode 5
 		6, 20, 22, 21, 6, 20, 22, 21, 19, 15     // episode 6  (secret: FUNKYOU)
 	];
+
+	// vgaCeiling[] from wl_draw.cpp: the ceiling colour (a VGA palette index) for
+	// each of the 60 floors — indexed by the absolute floor (episode*10 + mapon),
+	// exactly like SONGS. The floor half is always palette 0x19. Most floors are
+	// 0x1d (== #383838, the old flat default); the rest give each area its own tint.
+	// A dataset variant (Spear) supplies its own table. Byte-exact to Wolf4SDL.
+	var CEILING = [
+		0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0xbf,   // episode 1
+		0x4e, 0x4e, 0x4e, 0x1d, 0x8d, 0x4e, 0x1d, 0x2d, 0x1d, 0x8d,   // episode 2
+		0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x2d, 0xdd, 0x1d, 0x1d, 0x98,   // episode 3
+		0x1d, 0x9d, 0x2d, 0xdd, 0xdd, 0x9d, 0x2d, 0x4d, 0x1d, 0xdd,   // episode 4
+		0x7d, 0x1d, 0x2d, 0x2d, 0xdd, 0xd7, 0x1d, 0x1d, 0x1d, 0x2d,   // episode 5
+		0x1d, 0x1d, 0x1d, 0x1d, 0xdd, 0xdd, 0x7d, 0xdd, 0xdd, 0xdd    // episode 6
+	];
+	var FLOOR_COLOR_INDEX = 0x19;       // the floor half is a constant palette colour
+
+	// A VGA palette index -> "#rrggbb", through the active dataset's palette (so
+	// Spear's two overridden entries are honoured).
+	function paletteHex(idx) {
+		var p = root.WolfPalette.getRGB(), o = (idx & 0xff) * 3;
+		function h(v) { v = v & 0xff; return (v < 16 ? '0' : '') + v.toString(16); }
+		return '#' + h(p[o]) + h(p[o + 1]) + h(p[o + 2]);
+	}
+
 	var ARROW_FIRST = 90;               // ICONARROWS: plane1 90..97 = patrol turn arrows
 	var PUSH_SPEED = 70 / 128;          // tiles/sec — matches MovePWalls (128 tics/tile @ 70Hz)
 
@@ -173,6 +197,7 @@
 			if (v.weaponBase) WEAPON_BASE = v.weaponBase;
 			if (v.vga) VGA = v.vga;
 			if (v.songs) SONGS = v.songs;
+			if (v.ceiling) CEILING = v.ceiling;
 			if (v.prog) {
 				EPISODE_FLOORS = v.prog.episodeFloors;
 				ELEVATOR_BACK_TO = v.prog.elevatorBackTo;
@@ -577,6 +602,10 @@
 				': ' + this.ai.actors.length + ' active enemies spawned');
 		}
 		this.rc.setLevel(lvl, this.doors);
+		// Per-floor ceiling tint (vgaCeiling), floor is the constant 0x19 — both
+		// resolved through the active palette so Spear's overrides carry through.
+		this.rc.ceilColor = paletteHex(CEILING[index % CEILING.length]);
+		this.rc.floorColor = paletteHex(FLOOR_COLOR_INDEX);
 		this.rc.sprites = sprites.concat(this.ai.actors);
 		this._buildAreas();
 		this._resize();

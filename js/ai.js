@@ -7,12 +7,14 @@
  * (CheckLine), sighting/reaction, the hit-probability and damage formulas, and
  * the per-difficulty hitpoints. Frame indices and timings are the real ones.
  *
- * Deliberate simplifications (see README): patrol routes ignore the map's turn
- * arrows (actors walk straight and turn at walls); "area" activation is
- * approximated by line-of-sight plus gunfire noise; line-of-sight treats a door
- * as see-through once it is at least half open; bosses use a generic ranged
- * chase rather than their unique attack patterns. Timing runs on the original
- * 70 Hz tic clock (1 tic = 1/70 s).
+ * Faithful throughout: patrol routes follow the map's turn arrows
+ * (SelectPathDir), "area" activation uses the real connected-area gate, and the
+ * bosses fire their true projectiles (needle, rockets, twin rockets, fireballs,
+ * sparks). The remaining approximations are minor: line-of-sight treats a door
+ * as see-through once it is at least half open, and bosses chase generically
+ * rather than reproducing each one's exact attack choreography — the Angel of
+ * Death's self-heal is the only unmodelled boss behaviour. Timing runs on the
+ * original 70 Hz tic clock (1 tic = 1/70 s).
  */
 (function (root) {
 	'use strict';

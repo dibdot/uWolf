@@ -117,9 +117,9 @@
 	// +4 (SPR_STAT_48..51 add four SPEAR-only statics before SPR_GRD_S_1);
 	// ai.js applies spriteShift for those. The boss cast is entirely different
 	// and given explicitly. Boss floors just die (elevator continues); the Angel
-	// of Death is the finale (end 'victory'). Bosses use the generic ranged
-	// chase, as the WL6 bosses do here — the Death Knight's twin rockets and the
-	// Angel's spark/heal are the documented fidelity gap.
+	// of Death is the finale (end 'victory'). Each boss fires its real attack —
+	// the Death Knight's twin rockets, the Angel's sparks with the relaunch/tired
+	// cycle — over a generic chase; the Angel's self-heal is the only unmodelled bit.
 	var D = DIGI_SOD;
 	var SOD = {
 		id: 'SOD',
@@ -246,6 +246,12 @@
 		// songs[] under SPEAR (wl_play.cpp) mapped to SOD music-track indices
 		// (audiosod.h). 21 floors, one continuous campaign.
 		songs: [4, 0, 2, 22, 15, 1, 5, 9, 10, 15, 8, 3, 12, 11, 13, 15, 21, 15, 18, 0, 17],
+		// vgaCeiling[] under SPEAR (wl_draw.cpp): the 21 SOD floors' ceiling colours
+		// (VGA palette indices). Byte-exact to Wolf4SDL.
+		ceiling: [
+			0x6f, 0x4f, 0x1d, 0xde, 0xdf, 0x2e, 0x7f, 0x9e, 0xae, 0x7f,
+			0x1d, 0xde, 0xdf, 0xde, 0xdf, 0xde, 0xe1, 0xdc, 0x2e, 0x1d, 0xdc
+		],
 		// Flat 21-floor run: no episodes, no secret-elevator warp (a documented
 		// simplification — the SOD bonus floors 19-21 are reached normally here).
 		// Spear is one continuous 21-floor campaign: no episodes, and the floor

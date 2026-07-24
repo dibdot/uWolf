@@ -18,7 +18,7 @@ Copy these from your registered **Wolfenstein 3D v1.4 (GT/ID/Activision)** into
 the page's folder (your uhttpd Wolfenstein root). File names are matched
 case-insensitively. The same list applies to **Spear of Destiny** with a `.SOD`
 extension instead of `.WL6`; both sets can sit side by side and the menu lets
-you choose (see the Spear of Destiny section).
+you choose.
 
 Don't own a copy? Wolfenstein 3D can be bought (around €4.99) e.g. on GOG:
 <https://www.gog.com/en/game/wolfenstein_3d> — the `.WL6` and `.SOD` data files are in the
@@ -119,7 +119,8 @@ its music and sound settings apart.
   **AudioWorklet** — its own audio thread — so a long render frame on the main
   thread can't starve it and break the music up; browsers without worklets fall
   back to a main-thread `ScriptProcessorNode`.
-- Solid-colour floor/ceiling (as in the original)
+- Solid-colour floor with **per-floor ceiling colours** (the original
+  `vgaCeiling` table, resolved through the active dataset's palette)
 - **The original VGAGRAPH status bar and BJ face** (health-driven, with the
   number/weapon/key icons), when you also supply `VGAGRAPH`/`VGAHEAD`/`VGADICT`;
   otherwise a minimal built-in HUD is used

@@ -159,6 +159,7 @@
 		this._campaignDone = false;
 		this._pendingLevel = 0;
 		this.renderScale = 1.0; // internal resolution factor (always native)
+		this._tick = this._loop.bind(this);   // bound once, not one closure per frame
 		// Combat gamestate. Weapons: 0 knife, 1 pistol, 2 machine gun, 3 chaingun.
 		this.gs = null;
 		this._levelIndex = 0;
@@ -428,7 +429,7 @@
 		this._last = performance.now();      // don't bill the menu time to the next frame
 		this.setShowMap(this.showMap);
 		if (this.music) this.music.play(SONGS[this._levelIndex % SONGS.length]);
-		requestAnimationFrame(this._loop.bind(this));
+		requestAnimationFrame(this._tick);
 		return true;
 	};
 
@@ -612,7 +613,7 @@
 		this.setShowMap(this.showMap);
 		// Each floor has its own track (songs[] in wl_play.cpp).
 		if (this.music) this.music.play(SONGS[index % SONGS.length]);
-		if (!this.running) { this.running = true; this._last = performance.now(); requestAnimationFrame(this._loop.bind(this)); }
+		if (!this.running) { this.running = true; this._last = performance.now(); requestAnimationFrame(this._tick); }
 	};
 
 	Game.prototype._resize = function () {
@@ -1337,7 +1338,7 @@
 			if (typeof console !== 'undefined') console.error('[uWolf] frame error:', e);
 			this.toast('Frame error: ' + (e && e.message ? e.message : e));
 		}
-		if (this.running) requestAnimationFrame(this._loop.bind(this));
+		if (this.running) requestAnimationFrame(this._tick);
 	};
 
 	Game.prototype._frame = function (dt) {

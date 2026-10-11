@@ -115,10 +115,14 @@ its music and sound settings apart.
 - **FM music**, decoded from your `AUDIOT` and played through an OPL2 (YM3812)
   synthesiser written for this project. Optional: tick **Music** on the menu, and
   supply `AUDIOHED.<WL6|SOD>` + `AUDIOT.<WL6|SOD>`. Each floor gets its own track,
-  from the same `songs[]` table the original uses. The chip is synthesised in an
-  **AudioWorklet** — its own audio thread — so a long render frame on the main
-  thread can't starve it and break the music up; browsers without worklets fall
-  back to a main-thread `ScriptProcessorNode`.
+  from the same `songs[]` table the original uses. The chip is synthesised in a
+  **Web Worker** and played as a queue of audio buffers a second ahead, so a
+  long render frame on the main thread can't break the music up. Workers need
+  no secure context: this runs the same over plain `http://` from the router.
+  The FM sound effects (pickups, locked doors) are rendered once each and then
+  played like the digitised sounds. Only where no worker can start (a page
+  opened from `file://`) does the music fall back to a main-thread
+  `ScriptProcessorNode`.
 - Solid-colour floor with **per-floor ceiling colours** (the original
   `vgaCeiling` table, resolved through the active dataset's palette)
 - **The original VGAGRAPH status bar and BJ face** (health-driven, with the
@@ -131,8 +135,7 @@ its music and sound settings apart.
 - Minimap (off by default — toggle with M or the MAP button). Secret doors you
   haven't opened yet are marked with a **red dot**; the marker disappears once
   you push the wall. This is a comfort feature — the original never showed them.
-- Keyboard + mouse on desktop, dual-zone touch controls plus WPN button on
-  mobile
+- Keyboard on desktop; on-screen D-pad, FIRE and WPN buttons on mobile
 
 ## Controls
 
@@ -141,10 +144,9 @@ Desktop: **W/A/S/D** move, **←/→** turn, **Ctrl** fire, **1–4** switch wea
 **M** toggle map, **F8** quick-save, **F9** quick-load, **Esc** pause and go back to
 the menu (a **Resume game** button there picks the run straight back up).
 
-Touch: the left half of the screen is a move stick, the right half drags to
-turn, and a quick tap on the left half acts as *use* (doors, pushwalls,
-elevator). **WPN** cycles weapons, **MAP** toggles the minimap and **SAVE**
-quick-saves.
+Touch: **WPN** cycles weapons, **MAP** toggles the minimap, **SAVE**
+quick-saves and **MENU** pauses; a tap continues the floor-stats and game-over
+screens.
 
 Tick **Mobile controls** on the menu for on-screen controls: a **D-pad** bottom
 left and a **FIRE** button bottom right (hold it down for the automatic weapons).
@@ -153,9 +155,10 @@ The pad is laid out like the original's arrow keys — up/down walk, left/right
 is *use* (doors, secret walls, elevator). The pad is one capture surface, so your
 thumb can slide from "forward" straight into "turn left" without lifting.
 
-Mobile controls are off on desktop, where they would only cover the view, and on
-by default if the browser reports a touch device; either way the choice is
-remembered. There is no swipe-to-turn: turning lives on the pad, which is far
+Mobile controls are on by default on phones and tablets (a coarse pointer) and
+off on desktop, where they would only cover the view — a touchscreen laptop
+counts as desktop. The box can be ticked either way for the session; a reload
+starts from the default again. There is no swipe-to-turn: turning lives on the pad, which is far
 less tiring than dragging the screen around.
 
 On the menu, before entering a level, you can set the difficulty and toggle
@@ -232,7 +235,8 @@ uWolf/
   js/sound.js       Web Audio playback of the VSWAP digitized sounds
   js/opl2.js        a YM3812 (OPL2) FM synthesiser — the one piece of hardware here
   js/music.js       AUDIOHED/AUDIOT parsing, the shared FM engine (chip + IMF
-                    sequencer + effects), and the AudioWorklet/ScriptProcessor bridge
+                    sequencer + effects), and the Web Audio bridge
+  js/musicworker.js the Web Worker that renders the FM music off the main thread
   js/ai.js          enemy AI, the actor state machine, and player combat
   js/vgagraph.js    VGAGRAPH decoder (Huffman + planar) for the status bar/face
   js/game.js        loop, input, doors, combat wiring, HUD, collision, minimap
@@ -278,39 +282,9 @@ Then browse to `http://<router-ip>:8088/`.
 loads automatically from the page's own folder on open; if it isn't found, add
 the WL6 files there and press **Retry**.
 
-### Optional: HTTPS (for gapless music)
-
-The FM music is synthesised in an **AudioWorklet**, which browsers only expose in
-a *secure context* — i.e. `https://…` or `http://localhost`. Over plain
-`http://<router-ip>` the engine still plays music, but it falls back to a
-main-thread `ScriptProcessorNode`: that works, yet a long render frame can make
-the music stutter, and the browser logs a one-off "ScriptProcessorNode is
-deprecated" notice. Serving the page over HTTPS gets you the off-thread path and
-silences that notice. The menu shows which mode is active.
-
-You don't need a new certificate — reuse the self-signed one OpenWrt already
-generates for LuCI (`px5g` creates `/etc/uhttpd.crt` / `/etc/uhttpd.key` on first
-boot). Just give the `wolf` instance an HTTPS listener and point it at them
-(`libustream-ssl` must be installed, which it is on any image with LuCI-SSL):
-
-```
-config uhttpd 'wolf'
-    option listen_http '0.0.0.0:8088'
-    option listen_https '0.0.0.0:8443'
-    option home '/mnt/data/uWolf'
-    option index_page 'index.html'
-    option cert '/etc/uhttpd.crt'
-    option key '/etc/uhttpd.key'
-    option max_requests '5'
-```
-
-```sh
-/etc/init.d/uhttpd restart
-```
-
-Then browse to `https://<router-ip>:8443/` and accept the self-signed
-certificate once. `game.music.mode` in the console reads `'worklet'` on the
-secure path (and `'script'` on the plain-HTTP fallback).
+No HTTPS is needed: the music runs in a Web Worker, which browsers allow on
+plain `http://` too. `game.music.mode` in the console reads `'worker'` (or
+`'script'` on the main-thread fallback), and the menu says which one is active.
 
 ## Source & credits
 

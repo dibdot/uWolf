@@ -397,10 +397,8 @@
 	};
 
 	root.OPL2 = OPL2;
-	// `globalThis` is the one global reference guaranteed in every scope — a window,
-	// a worker, AND an AudioWorkletGlobalScope, which (unlike a Worker) does NOT
-	// expose `self`. Using it lets this same file be fetched and concatenated into
-	// the music worklet unchanged; `self`/`this` remain only as fallbacks for
-	// pre-2019 engines without globalThis.
+	// `globalThis` is the global in a window and in the music worker alike, so the
+	// page and musicworker.js (importScripts) load this same file unchanged;
+	// `self`/`this` remain only as fallbacks for pre-2019 engines.
 })(typeof globalThis !== 'undefined' ? globalThis
 	: (typeof self !== 'undefined' ? self : this));

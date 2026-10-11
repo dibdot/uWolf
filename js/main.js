@@ -138,20 +138,20 @@
 	var MUSIC_KEY = 'uwolf.music';
 
 	// Tell the player, in plain terms, how audio is running. The real backend is
-	// known once the audio node is up (game.music.onmode fires); before that — e.g.
-	// sitting on the menu before a level — we predict from window.isSecureContext,
-	// which is exactly what decides whether an AudioWorklet is available at all
-	// (HTTPS and http://localhost qualify, plain http does not).
+	// known once the audio output is up (game.music.onmode fires); before that —
+	// sitting on the menu before a level — we predict it: a worker is available
+	// everywhere except on a page opened from file://.
 	function renderAudioMode() {
 		var el = $('musicMode');
 		if (!el) return;
 		if (!game.music || !$('musicChk').checked) { el.textContent = ''; el.className = 'music-mode'; return; }
-		var mode = game.music.mode || (window.isSecureContext ? 'worklet' : 'script');
-		if (mode === 'worklet') {
-			el.textContent = 'Audio runs on its own thread — smooth, no stutter.';
+		var mode = game.music.mode ||
+			((typeof Worker !== 'undefined' && location.protocol !== 'file:') ? 'worker' : 'script');
+		if (mode === 'worker') {
+			el.textContent = 'Music runs on its own thread — smooth, no stutter.';
 			el.className = 'music-mode ok';
 		} else {
-			el.textContent = 'Audio runs in compatibility mode — it may stutter under heavy load.';
+			el.textContent = 'Music runs in compatibility mode — it may stutter under heavy load.';
 			el.className = 'music-mode warn';
 		}
 	}
@@ -193,13 +193,22 @@
 		renderAudioMode();
 	});
 
-	// --- Mobile controls (the on-screen FIRE button) ---
-	// Off on desktop, where it just covers the view; on by default if the browser
-	// reports a touch device. The choice is remembered across reloads.
-	var MOBILE_KEY = 'uwolf.mobileControls';
-
+	// --- Mobile controls (the on-screen D-pad and FIRE button) ---
+	// On by default where the primary pointer is a finger (phones, tablets), off
+	// on desktop, where they only cover the view. maxTouchPoints alone is not
+	// enough: touchscreen laptops report it too. The box can be ticked either way
+	// for the session; it is deliberately not remembered (as in uDuke), so a
+	// desktop that once ticked it does not start with a pad forever.
 	function touchDevice() {
-		return (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window;
+		try { return window.matchMedia('(pointer: coarse)').matches; }
+		catch (e) { return (navigator.maxTouchPoints || 0) > 0; }
+	}
+
+	// A pointer can already be gone by the time we capture it (a very short tap,
+	// a synthetic event); capturing is a convenience, never worth an exception.
+	function capture(el, e) {
+		try { if (el.setPointerCapture && e.pointerId != null) el.setPointerCapture(e.pointerId); }
+		catch (err) { /* nothing to capture */ }
 	}
 
 	function applyMobileControls(on) {
@@ -210,13 +219,12 @@
 			var pad = game.touch.pad;
 			pad.fwd = pad.back = pad.left = pad.right = false;
 		}
-		try { window.localStorage.setItem(MOBILE_KEY, on ? '1' : '0'); } catch (e) { /* ignore */ }
 	}
 
 	(function initMobileControls() {
-		var stored = null;
-		try { stored = window.localStorage.getItem(MOBILE_KEY); } catch (e) { /* ignore */ }
-		var on = (stored === null) ? touchDevice() : (stored === '1');
+		// Earlier versions stored the choice; drop that so it no longer overrides the default.
+		try { window.localStorage.removeItem('uwolf.mobileControls'); } catch (e) { /* ignore */ }
+		var on = touchDevice();
 		$('mobileChk').checked = on;
 		applyMobileControls(on);
 		$('mobileChk').addEventListener('change', function () {
@@ -229,7 +237,7 @@
 			e.preventDefault();
 			game.touch.fire = true;
 			if (game.sound) game.sound.resume();
-			if (fb.setPointerCapture && e.pointerId != null) fb.setPointerCapture(e.pointerId);
+			capture(fb, e);
 		}
 		function up(e) { if (e) e.preventDefault(); game.touch.fire = false; }
 		fb.addEventListener('pointerdown', down);
@@ -280,7 +288,7 @@
 			e.preventDefault();
 			padDown = true;
 			if (game.sound) game.sound.resume();
-			if (dpad.setPointerCapture && e.pointerId != null) dpad.setPointerCapture(e.pointerId);
+			capture(dpad, e);
 			padSet(keyAt(e.clientX, e.clientY));
 		});
 		dpad.addEventListener('pointermove', function (e) {

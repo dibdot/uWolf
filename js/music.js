@@ -128,11 +128,9 @@
 	// ---- Shared FM engine ----------------------------------------------------
 	// The whole synthesis chain — the OPL2 chip, the IMF sequencer, the FM sound
 	// effect, the 700/140 Hz clocks and the resampler — lives in this one factory.
-	// The main-thread ScriptProcessor fallback calls it directly; the AudioWorklet
-	// gets it by serialising this exact function with .toString() into its module,
-	// so there is a single source of truth for how a sample is made. It must stay
-	// self-contained: it may reference only its two parameters and its own locals
-	// (no `root`, no module-scope vars), or it will not survive the trip.
+	// The music worker (musicworker.js) loads this file and calls it, and so does
+	// the main-thread ScriptProcessor fallback: one source of truth for how a
+	// sample is made.
 	function createFmEngine(OPL2Ctor, sampleRate) {
 		'use strict';
 		var IMF_RATE = 700;      // sequencer tick rate
@@ -203,10 +201,11 @@
 				sfxAcc = 0;
 			},
 			// Fill `out` with resampled chip output. Silent (and cheap) when nothing
-			// is playing.
-			fill: function (out) {
+			// is playing — unless `ring` is set: then the chip keeps running, so a
+			// released note can fade out (the effect renderer wants that tail).
+			fill: function (out, ring) {
 				var i, n = out.length;
-				if (!track && !sfx) { for (i = 0; i < n; i++) out[i] = 0; return; }
+				if (!track && !sfx && !ring) { for (i = 0; i < n; i++) out[i] = 0; return; }
 				for (i = 0; i < n; i++) {
 					if (!primed) { a = chipSample(); b = chipSample(); primed = true; }
 					out[i] = a + (b - a) * frac;
@@ -217,176 +216,243 @@
 		};
 	}
 
-	// ---- AudioWorklet plumbing ----------------------------------------------
-	// Resolve opl2.js relative to THIS script, so the worklet can fetch the same
-	// chip source however uWolf is deployed (sub-path, cache-busting query, …).
-	var OPL_URL = (function () {
+	// ---- FM effects, rendered whole ------------------------------------------
+	// An FM effect is short and finite: a note stream at 140 Hz plus the release
+	// of its last note. So it is rendered in one go on a chip of its own, into a
+	// plain buffer that is played like a digitised sound — no latency from the
+	// music's queue, and the result is cached per effect. The original borrowed
+	// voice 0 of the music chip for it; OPL2 voices are simply summed at the
+	// output, so a second chip sounds the same (only a track that wrote to voice
+	// 0 would have cut the original's effect short — this one plays on).
+	var FX_TAIL = 0.12;        // seconds of release after the last note
+	function renderFx(OPL2Ctor, sampleRate, snd) {
+		var g = createFmEngine(OPL2Ctor, sampleRate);
+		g.playSfx(snd.inst, snd.block, snd.data);
+		var n = Math.ceil((snd.data.length + 1) * sampleRate / SFX_RATE + FX_TAIL * sampleRate);
+		var out = new Float32Array(n);
+		g.fill(out, true);
+		var end = n;
+		while (end > 0 && Math.abs(out[end - 1]) < 1e-4) end--;   // drop the silent tail
+		return out.subarray(0, end);
+	}
+
+	// ---- Where the music is made -----------------------------------------------
+	// The page's own script tag tells us where musicworker.js lives, including any
+	// cache-busting query (index.html loads the scripts as js/x.js?v=…).
+	var WORKER_URL = (function () {
 		try {
 			if (typeof document !== 'undefined') {
-				var s = document.querySelector('script[src*="opl2.js"]');
-				if (s && s.src) return s.src;
-				if (document.currentScript && document.currentScript.src)
-					return new URL('opl2.js', document.currentScript.src).href;
+				var s = document.querySelector('script[src*="music.js"]');
+				var u = new URL(s && s.src ? s.src : 'js/music.js', document.baseURI);
+				return new URL('musicworker.js' + u.search, u).href;
 			}
-		} catch (e) { /* fall through to the default */ }
-		return 'js/opl2.js';
+		} catch (e) { /* fall through */ }
+		return 'js/musicworker.js';
 	})();
 
-	var _oplSrc = null;
-	function fetchOplSource() {
-		if (_oplSrc) return Promise.resolve(_oplSrc);
-		return fetch(OPL_URL).then(function (r) {
-			if (!r.ok) throw new Error('opl2.js ' + r.status);
-			return r.text();
-		}).then(function (t) { _oplSrc = t; return t; });
-	}
+	var BLOCK = 4096;          // frames per music block (~85 ms at 48 kHz)
+	var LEAD = 1.0;            // seconds of music kept queued ahead of the clock
+	var START_GAP = 0.05;      // an empty queue starts this far ahead
 
-	// The processor half of the worklet. It owns an engine and pumps it; control
-	// comes in over the port. References OPL2 (from the fetched chip source),
-	// createFmEngine (serialised in below) and the worklet globals sampleRate /
-	// AudioWorkletProcessor / registerProcessor.
-	var WORKLET_GLUE = `
-class UWolfFmProcessor extends AudioWorkletProcessor {
-	constructor() {
-		super();
-		this.engine = createFmEngine(OPL2, sampleRate);
-		this.port.onmessage = (e) => {
-			var d = e.data, g = this.engine;
-			if (d.type === 'track') g.setTrack(d.track);
-			else if (d.type === 'silence') g.silence();
-			else if (d.type === 'stop') g.stop();
-			else if (d.type === 'quiet') g.quietMusic();
-			else if (d.type === 'sfx') g.playSfx(d.inst, d.block, d.data);
+	// The music's way out when a Worker is available (the normal case, on plain
+	// http:// as well as https://). The worker owns the chip and renders blocks;
+	// this side keeps LEAD seconds of them queued as AudioBufferSourceNodes laid
+	// end to end. The main thread only copies and schedules, so a long frame no
+	// longer starves the music: it has LEAD seconds of slack instead of one 4096-frame
+	// ScriptProcessor callback. A song change cuts the queue and bumps the
+	// generation; blocks still on their way from the old song are dropped.
+	// (uDuke's js/musicout.js, in uWolf's classic-script form.)
+	function WorkerSink(ctx, gain, onfail) {
+		var self = this;
+		this.ctx = ctx;
+		this.gain = gain;
+		this.gen = 0;
+		this.active = false;
+		this.nextTime = 0;
+		this.inflight = 0;
+		this.underruns = 0;
+		this.sources = [];
+		this.fxWait = {};          // effect index -> callbacks waiting for its buffer
+		this.worker = new Worker(WORKER_URL);
+		this.worker.onmessage = function (e) {
+			var m = e.data;
+			if (m.type === 'block') {
+				if (m.gen !== self.gen) return;       // from a song since stopped or changed
+				self.inflight--;
+				self._schedule(m.data);
+				self.pump();
+			} else if (m.type === 'fx') {
+				var cbs = self.fxWait[m.index] || [];
+				delete self.fxWait[m.index];
+				for (var i = 0; i < cbs.length; i++) cbs[i](m.data);
+			} else if (m.type === 'error') {
+				if (m.index != null) delete self.fxWait[m.index];   // one bad effect, not the worker
+				else onfail(m.message);
+			}
 		};
+		this.worker.onerror = function (e) {
+			if (e && e.preventDefault) e.preventDefault();
+			onfail((e && e.message) || 'music worker failed to load');
+		};
+		this.worker.postMessage({ type: 'init', rate: ctx.sampleRate });
 	}
-	process(inputs, outputs) {
-		var out = outputs[0] && outputs[0][0];
-		if (out) this.engine.fill(out);
-		return true;   // stay alive: the node is a continuous source
-	}
-}
-registerProcessor('uwolf-fm', UWolfFmProcessor);
-`;
 
-	function buildWorkletSource(oplSrc) {
-		return oplSrc + '\n;\n' + createFmEngine.toString() + '\n' + WORKLET_GLUE;
-	}
+	WorkerSink.prototype.ahead = function () {
+		return Math.max(0, this.nextTime - this.ctx.currentTime);
+	};
+
+	WorkerSink.prototype.pump = function () {
+		var rate = this.ctx.sampleRate;
+		while (this.active && this.ahead() + this.inflight * BLOCK / rate < LEAD) {
+			this.worker.postMessage({ type: 'render', frames: BLOCK, gen: this.gen });
+			this.inflight++;
+		}
+	};
+
+	WorkerSink.prototype._schedule = function (data) {
+		var ctx = this.ctx, self = this;
+		var buf = ctx.createBuffer(1, data.length, ctx.sampleRate);
+		buf.getChannelData(0).set(data);
+		var src = ctx.createBufferSource();
+		src.buffer = buf;
+		src.connect(this.gain);
+		// Underrun (the tab slept, the thread stalled): start again a little ahead.
+		if (this.nextTime < ctx.currentTime + 0.01) {
+			if (this.nextTime) this.underruns++;   // not the first block of a song
+			this.nextTime = ctx.currentTime + START_GAP;
+		}
+		src.start(this.nextTime);
+		this.nextTime += buf.duration;
+		this.sources.push(src);
+		src.onended = function () {
+			var i = self.sources.indexOf(src);
+			if (i >= 0) self.sources.splice(i, 1);
+			self.pump();
+		};
+	};
+
+	// Drop everything queued; blocks in flight are recognised as stale by the generation.
+	WorkerSink.prototype.cut = function () {
+		this.gen++;
+		for (var i = 0; i < this.sources.length; i++) {
+			var s = this.sources[i];
+			s.onended = null;
+			try { s.stop(); } catch (e) { /* not started yet */ }
+		}
+		this.sources.length = 0;
+		this.inflight = 0;
+		this.nextTime = 0;
+	};
+
+	WorkerSink.prototype.play = function (track) {
+		this.cut();
+		this.worker.postMessage({ type: 'track', track: track });
+		this.active = true;
+		this.pump();
+	};
+
+	WorkerSink.prototype.silence = function () {
+		this.cut();
+		this.active = false;
+		this.worker.postMessage({ type: 'silence' });
+	};
+
+	// Ask for an effect's samples; `cb(Float32Array)` runs when they arrive.
+	WorkerSink.prototype.fx = function (index, snd, cb) {
+		if (this.fxWait[index]) { this.fxWait[index].push(cb); return; }
+		this.fxWait[index] = [cb];
+		this.worker.postMessage({ type: 'fx', index: index, inst: snd.inst, block: snd.block, data: snd.data.slice() });
+	};
+
+	WorkerSink.prototype.close = function () {
+		this.cut();
+		this.active = false;
+		this.worker.terminate();
+	};
 
 	// ---- Web Audio bridge ----------------------------------------------------
 	// The chip runs at its own 49716 Hz; the audio context almost certainly does
 	// not, so the engine generates at the native rate and resamples on the way out.
 	//
-	// Synthesis runs in an AudioWorklet (its own thread) when the browser supports
-	// one, so a long render frame on the main thread can no longer starve the audio
-	// callback and break the music up. The worklet module is built at runtime from
-	// the fetched chip source + the shared engine, wrapped in a Blob URL — uWolf
-	// still ships nothing but plain static files. If anything about that path is
-	// unavailable (older browser, blocked blob:, addModule failure) it falls back
-	// to the original main-thread ScriptProcessorNode, which still works.
+	// Normally the music is rendered in a Web Worker (WorkerSink above) and the FM
+	// effects are rendered whole and cached. Workers need no secure context, so
+	// this runs the same over plain http:// from the router as over https://.
+	// Only where no worker can be started (a page opened from file://, an old
+	// browser) does it fall back to the main-thread ScriptProcessorNode, which
+	// still works but can stutter while a frame is long.
 	function MusicPlayer(ctx, audio) {
 		this.ctx = ctx;
 		this.audio = audio;
-		this.node = null;         // AudioWorkletNode or ScriptProcessorNode
-		this.gain = null;
-		this.mode = null;         // 'worklet' | 'script' | null (not set up yet)
-		this.onmode = null;       // optional callback(mode) once the node is live
+		this.node = null;         // ScriptProcessorNode (fallback only)
+		this.sink = null;         // WorkerSink (normal case)
+		this.gain = null;         // music level
+		this.fxGain = null;       // FM effect level
+		this.mode = null;         // 'worker' | 'script' | null (not set up yet)
+		this.onmode = null;       // optional callback(mode) once the backend is live
 		this.engine = null;       // main-thread engine (script fallback only)
-		this._pending = false;    // node setup in flight
 		this.musicOn = false;
 		this.volume = 0.55;
 		this.song = -1;
-		this._wantSong = -1;      // what the sink should currently be playing (-1 = none)
+		this._wantSong = -1;      // what should currently be playing (-1 = none)
+		this._fx = {};            // effect index -> AudioBuffer
+		this._fxSrc = null;       // the effect sounding now (a new one cuts it, as on voice 0)
+		this._fxSeq = 0;          // latest effect request, so a late one is not played
 	}
 
 	MusicPlayer.prototype._resume = function () {
 		if (this.ctx.state === 'suspended' && this.ctx.resume) this.ctx.resume();
 	};
 
-	// Route a control command to whichever backend is live. Before the node is
-	// ready (mode === null) commands are dropped: the wanted music is re-sent from
-	// _onNodeReady, and a transient effect fired during that ~tens-of-ms window is
-	// simply skipped.
-	MusicPlayer.prototype._apply = function (msg) {
-		if (this.mode === 'worklet' && this.node) {
-			this.node.port.postMessage(msg);
-		} else if (this.mode === 'script' && this.engine) {
-			var g = this.engine;
-			if (msg.type === 'track') g.setTrack(msg.track);
-			else if (msg.type === 'silence') g.silence();
-			else if (msg.type === 'stop') g.stop();
-			else if (msg.type === 'quiet') g.quietMusic();
-			else if (msg.type === 'sfx') g.playSfx(msg.inst, msg.block, msg.data);
-		}
-	};
-
-	// Lazily create the audio node on first use — after a user gesture, so the
-	// AudioContext is allowed to run. Worklet setup is async; the ScriptProcessor
-	// fallback is synchronous.
+	// Set up the output on first use — after a user gesture, so the AudioContext
+	// is allowed to run.
 	MusicPlayer.prototype._ensureNode = function () {
-		if (this.node || this._pending) return;
-		this._pending = true;
+		if (this.mode) return;
 		var self = this;
-		var canWorklet = this.ctx.audioWorklet && typeof Blob !== 'undefined' &&
-			typeof URL !== 'undefined' && URL.createObjectURL &&
-			typeof AudioWorkletNode !== 'undefined';
-		if (canWorklet) {
-			this._setupWorklet().then(function () {
-				self._pending = false; self._onNodeReady();
-			}).catch(function (e) {
-				if (typeof console !== 'undefined')
-					console.warn('[uWolf] AudioWorklet unavailable, using ScriptProcessor:',
-						e && e.message ? e.message : e);
-				self._setupScriptNode();
-				self._pending = false; self._onNodeReady();
-			});
-		} else {
-			this._setupScriptNode();
-			this._pending = false; this._onNodeReady();
+		this.gain = this.ctx.createGain();
+		this.gain.gain.value = this.volume;
+		this.gain.connect(this.ctx.destination);
+		this.fxGain = this.ctx.createGain();
+		this.fxGain.gain.value = this.volume;
+		this.fxGain.connect(this.ctx.destination);
+		var ok = false;
+		if (typeof Worker !== 'undefined') {
+			try {
+				this.sink = new WorkerSink(this.ctx, this.gain, function (why) { self._fallback(why); });
+				this.mode = 'worker';
+				ok = true;
+			} catch (e) { this.sink = null; }
 		}
+		if (!ok) this._setupScriptNode();
+		this._notify();
 	};
 
-	MusicPlayer.prototype._setupWorklet = function () {
-		var self = this;
-		return fetchOplSource().then(function (oplSrc) {
-			var url = URL.createObjectURL(
-				new Blob([buildWorkletSource(oplSrc)], { type: 'application/javascript' }));
-			return self.ctx.audioWorklet.addModule(url).then(function () {
-				URL.revokeObjectURL(url);
-				self.node = new AudioWorkletNode(self.ctx, 'uwolf-fm',
-					{ numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
-				self.gain = self.ctx.createGain();
-				self.gain.gain.value = self.volume;
-				self.node.connect(self.gain);
-				self.gain.connect(self.ctx.destination);
-				self.mode = 'worklet';
-			});
-		});
+	// The worker failed (it could not be loaded, or threw): carry on in the main
+	// thread with whatever was wanted.
+	MusicPlayer.prototype._fallback = function (why) {
+		if (this.mode !== 'worker') return;
+		if (typeof console !== 'undefined')
+			console.warn('[uWolf] music worker unavailable, using ScriptProcessor:', why);
+		if (this.sink) { this.sink.close(); this.sink = null; }
+		this._setupScriptNode();
+		if (this._wantSong >= 0 && this.musicOn && this.audio) {
+			var track = this.audio.music(this._wantSong);
+			if (track) this.engine.setTrack(track.slice());
+		}
+		this._notify();
 	};
 
 	MusicPlayer.prototype._setupScriptNode = function () {
-		if (this.node) return;
 		var self = this;
 		this.engine = createFmEngine(root.OPL2, this.ctx.sampleRate);
-		// 4096 frames (~92 ms at 44.1 kHz) of headroom on the main thread; the extra
-		// latency is irrelevant for background music.
+		// 4096 frames (~92 ms at 44.1 kHz) of headroom on the main thread.
 		this.node = this.ctx.createScriptProcessor(4096, 0, 1);
 		this.node.onaudioprocess = function (e) { self.engine.fill(e.outputBuffer.getChannelData(0)); };
-		this.gain = this.ctx.createGain();
-		this.gain.gain.value = this.volume;
 		this.node.connect(this.gain);
-		this.gain.connect(this.ctx.destination);
 		this.mode = 'script';
 	};
 
-	// Reconcile the freshly-ready node with the state the game asked for while it
-	// was still being built.
-	MusicPlayer.prototype._onNodeReady = function () {
-		if (this.gain) this.gain.gain.value = this.volume;
-		if (this._wantSong >= 0 && this.musicOn && this.audio) {
-			var track = this.audio.music(this._wantSong);
-			if (track) this._apply({ type: 'track', track: track.slice() });
-		}
-		// Tell the UI which backend actually came up ('worklet' vs 'script').
+	// Tell the UI which backend actually came up ('worker' vs 'script').
+	MusicPlayer.prototype._notify = function () {
 		if (this.onmode) { try { this.onmode(this.mode); } catch (e) { /* UI hook is best-effort */ } }
 	};
 
@@ -397,48 +463,77 @@ registerProcessor('uwolf-fm', UWolfFmProcessor);
 		if (!track) return false;
 		this._wantSong = song;
 		this._ensureNode();
-		// slice() detaches a compact copy so the worklet's structured clone never
-		// touches (or transfers) the shared AUDIOT buffer this view points into.
-		this._apply({ type: 'track', track: track.slice() });
+		// slice() detaches a compact copy, so posting it never touches the shared
+		// AUDIOT buffer this view points into.
+		if (this.sink) this.sink.play(track.slice());
+		else this.engine.setTrack(track.slice());
 		this._resume();
 		return true;
 	};
 
-	// Play an FM sound effect. Parsing stays on the main thread (WolfAudio); only
-	// the register writes and the note stream cross to the synth. Independent of
-	// the Music toggle, exactly as the original keeps music and effects apart.
+	MusicPlayer.prototype._startFx = function (buf) {
+		var ctx = this.ctx;
+		if (this._fxSrc) { try { this._fxSrc.stop(); } catch (e) { /* already over */ } }
+		var src = ctx.createBufferSource();
+		src.buffer = buf;
+		src.connect(this.fxGain);
+		src.start(0);
+		this._fxSrc = src;
+	};
+
+	// Play an FM sound effect. Parsing stays on the main thread (WolfAudio); the
+	// worker renders the samples once, and they are kept. Independent of the
+	// Music toggle, exactly as the original keeps music and effects apart.
 	MusicPlayer.prototype.playSfx = function (index) {
 		if (!this.audio) return false;
 		var snd = this.audio.fx(index);
 		if (!snd) return false;
 		this._ensureNode();
-		this._apply({ type: 'sfx', inst: snd.inst, block: snd.block, data: snd.data.slice() });
 		this._resume();
+		if (!this.sink) {                                       // fallback: the shared chip
+			this.engine.playSfx(snd.inst, snd.block, snd.data.slice());
+			return true;
+		}
+		var have = this._fx[index];
+		if (have) { this._fxSeq++; this._startFx(have); return true; }
+		var self = this, seq = ++this._fxSeq, asked = this.ctx.currentTime;
+		this.sink.fx(index, snd, function (data) {
+			if (!data.length) return;
+			var buf = self.ctx.createBuffer(1, data.length, self.ctx.sampleRate);
+			buf.getChannelData(0).set(data);
+			self._fx[index] = buf;
+			// The first time an effect is needed it arrives a few ms late; if it took
+			// so long that it would no longer match what happened, skip it.
+			if (seq === self._fxSeq && self.ctx.currentTime - asked < 0.15) self._startFx(buf);
+		});
 		return true;
 	};
 
 	// Only the *music* is toggled here; effects are unaffected.
 	MusicPlayer.prototype.setEnabled = function (on) {
 		this.musicOn = !!on;
-		if (!this.musicOn) { this._wantSong = -1; this._apply({ type: 'silence' }); }
+		if (!this.musicOn) this.silence();
 		else if (this.song >= 0) this.play(this.song);
 	};
 
 	MusicPlayer.prototype.setVolume = function (v) {
 		this.volume = v;
 		if (this.gain) this.gain.gain.value = v;
+		if (this.fxGain) this.fxGain.gain.value = v;
 	};
 
-	// Stop the music but leave the chip (and any effect) alone.
+	// Stop the music but leave any effect alone.
 	MusicPlayer.prototype.silence = function () {
 		this._wantSong = -1;
-		this._apply({ type: 'silence' });
+		if (this.sink) this.sink.silence();
+		else if (this.engine) this.engine.silence();
 	};
 
 	MusicPlayer.prototype.stop = function () {
 		this.song = -1;
-		this._wantSong = -1;
-		this._apply({ type: 'stop' });
+		this.silence();
+		if (this._fxSrc) { try { this._fxSrc.stop(); } catch (e) { /* already over */ } this._fxSrc = null; }
+		if (this.engine) this.engine.stop();
 	};
 
 	root.WolfMusic = {
@@ -446,6 +541,7 @@ registerProcessor('uwolf-fm', UWolfFmProcessor);
 		ImfPlayer: ImfPlayer,
 		MusicPlayer: MusicPlayer,
 		createFmEngine: createFmEngine,
+		renderFx: renderFx,
 		STARTMUSIC: STARTMUSIC,
 		IMF_RATE: IMF_RATE
 	};
